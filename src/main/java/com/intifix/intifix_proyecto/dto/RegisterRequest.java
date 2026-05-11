@@ -1,68 +1,45 @@
-package com.intifix.intifix_proyecto.model;
+package com.intifix.intifix_proyecto.dto;
 
-import jakarta.persistence.*;
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
-@Entity
-@Table(name = "users")
-public class User {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+public class RegisterRequest {
 
     @NotBlank(message = "El nombre es obligatorio")
-    @Column(nullable = false)
     private String name;
 
     @NotBlank(message = "El DNI es obligatorio")
     @Pattern(regexp = "^[0-9]{8}$", message = "El DNI debe tener 8 dígitos")
-    @Column(unique = true, nullable = false, length = 8)
     private String dni;
 
     @NotBlank(message = "El correo es obligatorio")
     @Email(message = "El correo no tiene un formato válido")
-    @Column(unique = true, nullable = false)
     private String email;
 
     @NotBlank(message = "El teléfono es obligatorio")
     @Pattern(regexp = "^9[0-9]{8}$", message = "El teléfono debe tener 9 dígitos y empezar con 9")
-    @Column(unique = true, nullable = false, length = 9)
     private String phone;
 
     @NotBlank(message = "La contraseña es obligatoria")
-    @Column(nullable = false)
+    @Size(min = 6, message = "La contraseña debe tener mínimo 6 caracteres")
     private String password;
 
     @NotBlank(message = "El rol es obligatorio")
-    @Pattern(regexp = "CLIENTE|TECNICO|ADMIN", message = "El rol debe ser CLIENTE, TECNICO o ADMIN")
-    @Column(nullable = false)
+    @Pattern(regexp = "CLIENTE|TECNICO", message = "El rol debe ser CLIENTE o TECNICO")
     private String role;
 
-    @Column(nullable = false)
-    private Boolean verified;
-
-    @Column(nullable = false)
-    private String accountStatus;
-
+    @NotBlank(message = "El método de verificación es obligatorio")
+    @Pattern(regexp = "EMAIL|SMS", message = "El método debe ser EMAIL o SMS")
     private String verificationMethod;
 
-    @Column(length = 600)
     private String specialties;
-
     private String locationType;
-
-    @Column(length = 300)
     private String serviceZone;
-
-    @Column(length = 300)
     private String availability;
 
-    public User() {
-    }
-
-    public Long getId() {
-        return id;
+    public RegisterRequest() {
     }
 
     public String getName() {
@@ -89,14 +66,6 @@ public class User {
         return role;
     }
 
-    public Boolean getVerified() {
-        return verified;
-    }
-
-    public String getAccountStatus() {
-        return accountStatus;
-    }
-
     public String getVerificationMethod() {
         return verificationMethod;
     }
@@ -115,10 +84,6 @@ public class User {
 
     public String getAvailability() {
         return availability;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
     }
 
     public void setName(String name) {
@@ -143,14 +108,6 @@ public class User {
 
     public void setRole(String role) {
         this.role = role;
-    }
-
-    public void setVerified(Boolean verified) {
-        this.verified = verified;
-    }
-
-    public void setAccountStatus(String accountStatus) {
-        this.accountStatus = accountStatus;
     }
 
     public void setVerificationMethod(String verificationMethod) {
