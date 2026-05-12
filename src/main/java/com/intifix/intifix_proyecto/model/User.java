@@ -2,6 +2,7 @@ package com.intifix.intifix_proyecto.model;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
@@ -57,6 +58,18 @@ public class User {
 
     @Column(length = 300)
     private String availability;
+
+    @Column(name = "failed_attempts", nullable = false)
+    private Integer failedAttempts = 0;
+
+    @Column(name = "locked_until")
+    private LocalDateTime lockedUntil;
+
+    @Column(name = "recovery_code")
+    private String recoveryCode;
+
+    @Column(name = "recovery_code_expires_at")
+    private LocalDateTime recoveryCodeExpiresAt;
 
     public User() {
     }
@@ -117,6 +130,22 @@ public class User {
         return availability;
     }
 
+    public Integer getFailedAttempts() {
+        return failedAttempts;
+    }
+
+    public LocalDateTime getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public String getRecoveryCode() {
+        return recoveryCode;
+    }
+
+    public LocalDateTime getRecoveryCodeExpiresAt() {
+        return recoveryCodeExpiresAt;
+    }
+
     public void setId(Long id) {
         this.id = id;
     }
@@ -171,5 +200,21 @@ public class User {
 
     public void setAvailability(String availability) {
         this.availability = availability;
+    }
+
+    public void setFailedAttempts(Integer failedAttempts) {
+        this.failedAttempts = failedAttempts;
+    }
+
+    public void setLockedUntil(LocalDateTime lockedUntil) {
+        this.lockedUntil = lockedUntil;
+    }
+
+    public void setRecoveryCode(String recoveryCode) {
+        this.recoveryCode = recoveryCode;
+    }
+
+    public void setRecoveryCodeExpiresAt(LocalDateTime recoveryCodeExpiresAt) {
+        this.recoveryCodeExpiresAt = recoveryCodeExpiresAt;
     }
 }

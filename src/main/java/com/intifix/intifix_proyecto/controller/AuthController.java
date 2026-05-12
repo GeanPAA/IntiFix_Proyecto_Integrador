@@ -7,11 +7,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import com.intifix.intifix_proyecto.dto.CambiarPasswordRequest;
 import com.intifix.intifix_proyecto.dto.ConfirmRegisterRequest;
 import com.intifix.intifix_proyecto.dto.LoginRequest;
 import com.intifix.intifix_proyecto.dto.LoginResponse;
 import com.intifix.intifix_proyecto.dto.PendingRegistration;
 import com.intifix.intifix_proyecto.dto.RegisterRequest;
+import com.intifix.intifix_proyecto.dto.SolicitarCodigoRequest;
+import com.intifix.intifix_proyecto.dto.ValidarCodigoRequest;
 import com.intifix.intifix_proyecto.model.User;
 import com.intifix.intifix_proyecto.repository.UserRepository;
 import com.intifix.intifix_proyecto.service.EmailService;
@@ -25,6 +28,9 @@ import jakarta.validation.Valid;
 public class AuthController {
 
     private static final int CODE_EXPIRATION_MINUTES = 5;
+    private static final int RECOVERY_CODE_EXPIRATION_MINUTES = 10;
+    private static final int MAX_LOGIN_ATTEMPTS = 3;
+    private static final int LOCK_MINUTES = 5;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -240,6 +246,10 @@ public class AuthController {
         user.setServiceZone(pendingRegistration.getServiceZone());
         user.setAvailability(pendingRegistration.getAvailability());
         user.setVerified(true);
+        user.setFailedAttempts(0);
+        user.setLockedUntil(null);
+        user.setRecoveryCode(null);
+        user.setRecoveryCodeExpiresAt(null);
 
         if ("TECNICO".equals(pendingRegistration.getRole())) {
             user.setAccountStatus("PENDIENTE");
@@ -266,13 +276,39 @@ public class AuthController {
             return ResponseEntity.badRequest().body("El correo no existe");
         }
 
+        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(LocalDateTime.now())) {
+            return ResponseEntity.badRequest().body(
+                    "Tu cuenta está bloqueada temporalmente. Intenta nuevamente después de unos minutos."
+            );
+        }
+
         boolean passwordCorrecta = passwordEncoder.matches(
                 loginRequest.getPassword(),
                 user.getPassword()
         );
 
         if (!passwordCorrecta) {
-            return ResponseEntity.badRequest().body("Contraseña incorrecta");
+            int intentosActuales = user.getFailedAttempts() == null ? 0 : user.getFailedAttempts();
+            user.setFailedAttempts(intentosActuales + 1);
+
+            if (user.getFailedAttempts() >= MAX_LOGIN_ATTEMPTS) {
+                user.setLockedUntil(LocalDateTime.now().plusMinutes(LOCK_MINUTES));
+                user.setFailedAttempts(0);
+                userRepository.save(user);
+
+                return ResponseEntity.badRequest().body(
+                        "Tu cuenta ha sido bloqueada temporalmente por demasiados intentos fallidos. Intenta nuevamente en "
+                                + LOCK_MINUTES + " minutos."
+                );
+            }
+
+            userRepository.save(user);
+
+            int intentosRestantes = MAX_LOGIN_ATTEMPTS - user.getFailedAttempts();
+
+            return ResponseEntity.badRequest().body(
+                    "Contraseña incorrecta. Intentos restantes: " + intentosRestantes
+            );
         }
 
         if (!Boolean.TRUE.equals(user.getVerified())) {
@@ -289,6 +325,10 @@ public class AuthController {
             }
         }
 
+        user.setFailedAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+
         LoginResponse response = new LoginResponse(
                 user.getId(),
                 user.getName(),
@@ -300,6 +340,129 @@ public class AuthController {
         );
 
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/password/request-code")
+    public ResponseEntity<String> requestPasswordCode(@RequestBody SolicitarCodigoRequest request) {
+
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body("Ingresa tu correo electrónico.");
+        }
+
+        User user = userRepository.findByEmail(request.getEmail()).orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.badRequest().body("El correo ingresado no se encuentra registrado.");
+        }
+
+        String codigo = generarCodigoVerificacion();
+
+        user.setRecoveryCode(codigo);
+        user.setRecoveryCodeExpiresAt(LocalDateTime.now().plusMinutes(RECOVERY_CODE_EXPIRATION_MINUTES));
+
+        userRepository.save(user);
+
+        try {
+            emailService.enviarCodigoRecuperacion(
+                    user.getEmail(),
+                    user.getName(),
+                    codigo,
+                    RECOVERY_CODE_EXPIRATION_MINUTES
+            );
+        } catch (Exception e) {
+            user.setRecoveryCode(null);
+            user.setRecoveryCodeExpiresAt(null);
+            userRepository.save(user);
+
+            return ResponseEntity.internalServerError()
+                    .body("No se pudo enviar el código de recuperación. Revisa tu configuración de correo.");
+        }
+
+        return ResponseEntity.ok("Se envió un código de recuperación a tu correo electrónico.");
+    }
+
+    @PostMapping("/password/verify-code")
+    public ResponseEntity<String> verifyPasswordCode(@RequestBody ValidarCodigoRequest request) {
+
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body("Ingresa tu correo electrónico.");
+        }
+
+        if (request.getCodigo() == null || !request.getCodigo().matches("^[0-9]{6}$")) {
+            return ResponseEntity.badRequest().body("Debes ingresar un código válido de 6 números.");
+        }
+
+        User user = userRepository.findByEmail(request.getEmail()).orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.badRequest().body("El correo ingresado no se encuentra registrado.");
+        }
+
+        if (user.getRecoveryCode() == null || user.getRecoveryCodeExpiresAt() == null) {
+            return ResponseEntity.badRequest().body("No existe un código de recuperación activo.");
+        }
+
+        if (user.getRecoveryCodeExpiresAt().isBefore(LocalDateTime.now())) {
+            user.setRecoveryCode(null);
+            user.setRecoveryCodeExpiresAt(null);
+            userRepository.save(user);
+
+            return ResponseEntity.badRequest().body("El código venció. Solicita uno nuevo.");
+        }
+
+        if (!user.getRecoveryCode().equals(request.getCodigo())) {
+            return ResponseEntity.badRequest().body("Código incorrecto.");
+        }
+
+        return ResponseEntity.ok("Código validado correctamente. Ahora puedes registrar una nueva contraseña.");
+    }
+
+    @PostMapping("/password/change")
+    public ResponseEntity<String> changePassword(@RequestBody CambiarPasswordRequest request) {
+
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body("Ingresa tu correo electrónico.");
+        }
+
+        if (request.getCodigo() == null || !request.getCodigo().matches("^[0-9]{6}$")) {
+            return ResponseEntity.badRequest().body("Debes ingresar un código válido de 6 números.");
+        }
+
+        if (request.getNuevaPassword() == null || request.getNuevaPassword().length() < 6) {
+            return ResponseEntity.badRequest().body("La nueva contraseña debe tener mínimo 6 caracteres.");
+        }
+
+        User user = userRepository.findByEmail(request.getEmail()).orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.badRequest().body("El correo ingresado no se encuentra registrado.");
+        }
+
+        if (user.getRecoveryCode() == null || user.getRecoveryCodeExpiresAt() == null) {
+            return ResponseEntity.badRequest().body("No existe un código de recuperación activo.");
+        }
+
+        if (user.getRecoveryCodeExpiresAt().isBefore(LocalDateTime.now())) {
+            user.setRecoveryCode(null);
+            user.setRecoveryCodeExpiresAt(null);
+            userRepository.save(user);
+
+            return ResponseEntity.badRequest().body("El código venció. Solicita uno nuevo.");
+        }
+
+        if (!user.getRecoveryCode().equals(request.getCodigo())) {
+            return ResponseEntity.badRequest().body("Código incorrecto.");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNuevaPassword()));
+        user.setRecoveryCode(null);
+        user.setRecoveryCodeExpiresAt(null);
+        user.setFailedAttempts(0);
+        user.setLockedUntil(null);
+
+        userRepository.save(user);
+
+        return ResponseEntity.ok("Tu contraseña fue actualizada correctamente. Ya puedes iniciar sesión.");
     }
 
     private String generarCodigoVerificacion() {

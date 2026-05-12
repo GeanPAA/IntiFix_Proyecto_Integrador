@@ -29,6 +29,7 @@ const AVAILABILITY = [
 function App() {
   const [modo, setModo] = useState("registro");
   const [step, setStep] = useState(1);
+  const [recoveryStep, setRecoveryStep] = useState(1);
   const [cargando, setCargando] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [tipoMensaje, setTipoMensaje] = useState("");
@@ -59,6 +60,9 @@ function App() {
     provinceDistrict: "",
     availability: [],
     code: "",
+    recoveryCode: "",
+    newPassword: "",
+    confirmNewPassword: "",
   });
 
   useEffect(() => {
@@ -70,7 +74,6 @@ function App() {
           clearInterval(intervalo);
           return 0;
         }
-
         return actual - 1;
       });
     }, 1000);
@@ -150,12 +153,23 @@ function App() {
     }
 
     if (name === "phone") {
-      setFormData({ ...formData, phone: value.replace(/\D/g, "").slice(0, 9) });
+      setFormData({
+        ...formData,
+        phone: value.replace(/\D/g, "").slice(0, 9),
+      });
       return;
     }
 
     if (name === "code") {
       setFormData({ ...formData, code: value.replace(/\D/g, "").slice(0, 6) });
+      return;
+    }
+
+    if (name === "recoveryCode") {
+      setFormData({
+        ...formData,
+        recoveryCode: value.replace(/\D/g, "").slice(0, 6),
+      });
       return;
     }
 
@@ -169,6 +183,7 @@ function App() {
 
   const limpiarTodo = () => {
     setStep(1);
+    setRecoveryStep(1);
     setFormData({
       role: "CLIENTE",
       name: "",
@@ -185,6 +200,9 @@ function App() {
       provinceDistrict: "",
       availability: [],
       code: "",
+      recoveryCode: "",
+      newPassword: "",
+      confirmNewPassword: "",
     });
 
     setEmailEstado({ texto: "", tipo: "" });
@@ -197,7 +215,21 @@ function App() {
     setMensaje("");
     setTipoMensaje("");
     setModalCodigo(false);
+    setRecoveryStep(1);
     limpiarTodo();
+  };
+
+  const irARecuperacion = () => {
+    setModo("recuperacion");
+    setMensaje("");
+    setTipoMensaje("");
+    setRecoveryStep(1);
+    setFormData((prev) => ({
+      ...prev,
+      recoveryCode: "",
+      newPassword: "",
+      confirmNewPassword: "",
+    }));
   };
 
   const toggleArrayItem = (field, value) => {
@@ -229,7 +261,7 @@ function App() {
       } else {
         setEmailEstado({ texto, tipo: "exito" });
       }
-    } catch (error) {
+    } catch {
       setEmailEstado({
         texto: "No se pudo validar el correo. Revisa si el backend está encendido.",
         tipo: "error",
@@ -250,7 +282,7 @@ function App() {
       } else {
         setDniEstado({ texto, tipo: "exito" });
       }
-    } catch (error) {
+    } catch {
       setDniEstado({
         texto: "No se pudo validar el DNI. Revisa si el backend está encendido.",
         tipo: "error",
@@ -271,7 +303,7 @@ function App() {
       } else {
         setPhoneEstado({ texto, tipo: "exito" });
       }
-    } catch (error) {
+    } catch {
       setPhoneEstado({
         texto: "No se pudo validar el teléfono. Revisa si el backend está encendido.",
         tipo: "error",
@@ -397,9 +429,7 @@ function App() {
   };
 
   const construirZonaServicio = () => {
-    if (formData.role !== "TECNICO") {
-      return "";
-    }
+    if (formData.role !== "TECNICO") return "";
 
     if (formData.locationType === "LIMA") {
       return `Lima - Lima Metropolitana - ${formData.serviceZone}`;
@@ -501,6 +531,128 @@ function App() {
     await solicitarCodigoRegistro();
   };
 
+  const solicitarCodigoRecuperacion = async (e) => {
+    e.preventDefault();
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      if (!formData.email || !formData.email.includes("@")) {
+        throw new Error("Ingresa un correo electrónico válido.");
+      }
+
+      const respuesta = await fetch(`${API_URL}/password/request-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email,
+        }),
+      });
+
+      const texto = await respuesta.text();
+
+      if (!respuesta.ok) {
+        throw new Error(texto);
+      }
+
+      setFormData({
+        ...formData,
+        recoveryCode: "",
+        newPassword: "",
+        confirmNewPassword: "",
+      });
+
+      setRecoveryStep(2);
+      mostrarMensaje("✅ " + texto, "exito");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const validarCodigoRecuperacion = async (e) => {
+    e.preventDefault();
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      if (!/^[0-9]{6}$/.test(formData.recoveryCode)) {
+        throw new Error("El código debe tener 6 números.");
+      }
+
+      const respuesta = await fetch(`${API_URL}/password/verify-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          codigo: formData.recoveryCode,
+        }),
+      });
+
+      const texto = await respuesta.text();
+
+      if (!respuesta.ok) {
+        throw new Error(texto);
+      }
+
+      setRecoveryStep(3);
+      mostrarMensaje("✅ " + texto, "exito");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const cambiarPasswordRecuperacion = async (e) => {
+    e.preventDefault();
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      if (formData.newPassword.length < 6) {
+        throw new Error("La nueva contraseña debe tener mínimo 6 caracteres.");
+      }
+
+      if (formData.newPassword !== formData.confirmNewPassword) {
+        throw new Error("Las contraseñas no coinciden.");
+      }
+
+      const respuesta = await fetch(`${API_URL}/password/change`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          codigo: formData.recoveryCode,
+          nuevaPassword: formData.newPassword,
+        }),
+      });
+
+      const texto = await respuesta.text();
+
+      if (!respuesta.ok) {
+        throw new Error(texto);
+      }
+
+      setRecoveryStep(4);
+      mostrarMensaje("✅ " + texto, "exito");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
   const iniciarSesion = async (e) => {
     e.preventDefault();
     setCargando(true);
@@ -533,7 +685,10 @@ function App() {
       }
 
       setUsuarioActual(data);
-      mostrarMensaje("✅ " + (data.message || "Inicio de sesión correcto."), "exito");
+      mostrarMensaje(
+        "✅ " + (data.message || "Inicio de sesión correcto."),
+        "exito"
+      );
 
       if (data.role === "ADMIN") {
         cargarTecnicosPendientes();
@@ -697,24 +852,12 @@ function App() {
                   <div className="technician-card" key={tecnico.id}>
                     <div>
                       <h3>{tecnico.name}</h3>
-                      <p>
-                        <strong>DNI:</strong> {tecnico.dni}
-                      </p>
-                      <p>
-                        <strong>Correo:</strong> {tecnico.email}
-                      </p>
-                      <p>
-                        <strong>Teléfono:</strong> {tecnico.phone}
-                      </p>
-                      <p>
-                        <strong>Especialidades:</strong> {tecnico.specialties}
-                      </p>
-                      <p>
-                        <strong>Zona:</strong> {tecnico.serviceZone}
-                      </p>
-                      <p>
-                        <strong>Disponibilidad:</strong> {tecnico.availability}
-                      </p>
+                      <p><strong>DNI:</strong> {tecnico.dni}</p>
+                      <p><strong>Correo:</strong> {tecnico.email}</p>
+                      <p><strong>Teléfono:</strong> {tecnico.phone}</p>
+                      <p><strong>Especialidades:</strong> {tecnico.specialties}</p>
+                      <p><strong>Zona:</strong> {tecnico.serviceZone}</p>
+                      <p><strong>Disponibilidad:</strong> {tecnico.availability}</p>
                     </div>
 
                     <div className="admin-actions">
@@ -749,121 +892,71 @@ function App() {
   }
 
   return (
-    <div className="pagina">
+    <div className="pagina auth-page">
       <div className="app-shell">
-        <aside className="sidebar-brand">
-          <div className="brand-top">
-            <div className="brand-mark">
-              <span>IF</span>
-            </div>
-
-            <div>
-              <h1>IntiFix</h1>
-              <p>Enterprise Service Platform</p>
-            </div>
-          </div>
-
-          <div className="dashboard-preview">
-            <div className="preview-header">
-              <span>Registro inteligente</span>
-              <strong>{formData.role}</strong>
-            </div>
-
-            <div className="wizard-map">
-              <div className={step >= 1 ? "map-item active" : "map-item"}>
-                <span>1</span>
-                <p>Tipo de cuenta</p>
-              </div>
-
-              <div className={step >= 2 ? "map-item active" : "map-item"}>
-                <span>2</span>
-                <p>Datos personales</p>
-              </div>
-
-              <div className={step >= 3 ? "map-item active" : "map-item"}>
-                <span>3</span>
-                <p>Verificación</p>
-              </div>
-
-              {formData.role === "TECNICO" && (
-                <div className={step >= 4 ? "map-item active" : "map-item"}>
-                  <span>4</span>
-                  <p>Perfil técnico</p>
-                </div>
-              )}
-            </div>
-
-            <div className="security-card">
-              <div className="security-icon">🔐</div>
-              <div>
-                <h3>Registro protegido</h3>
-                <p>
-                  La cuenta se guarda recién cuando el código de verificación
-                  coincide.
-                </p>
-              </div>
-            </div>
-
-            <div className="activity-list">
-              <div className="activity-item">
-                <span></span>
-                <p>Correo, DNI y teléfono únicos</p>
-              </div>
-
-              <div className="activity-item">
-                <span></span>
-                <p>Código dinámico con vencimiento</p>
-              </div>
-
-              <div className="activity-item">
-                <span></span>
-                <p>Técnico queda pendiente de aprobación</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="sidebar-footer">
-            <p>
-              Flujo alineado a registro de cliente, técnico, validación de
-              duplicados y aprobación posterior.
-            </p>
-          </div>
-        </aside>
-
         <main className="auth-panel">
+          <div className="brand-mini">
+            <div className="brand-badge">IF</div>
+            <div className="brand-text">
+              <h1>IntiFix</h1>
+              <p>Plataforma de servicios técnicos</p>
+            </div>
+          </div>
+
           <div className="auth-header">
             <div>
               <span className="eyebrow">
                 {modo === "registro"
                   ? `Paso ${step} de ${totalSteps}`
+                  : modo === "recuperacion"
+                  ? `Recuperación paso ${recoveryStep}`
                   : "Acceso seguro"}
               </span>
-              <h2>{modo === "registro" ? "Crear cuenta" : "Iniciar sesión"}</h2>
+
+              <h2>
+                {modo === "registro"
+                  ? "Crear cuenta"
+                  : modo === "recuperacion"
+                  ? "Recuperar contraseña"
+                  : "Iniciar sesión"}
+              </h2>
+
+              {modo === "recuperacion" && (
+                <button
+                  type="button"
+                  className="back-link"
+                  onClick={() => cambiarModo("login")}
+                >
+                  ← Volver al login
+                </button>
+              )}
             </div>
 
             <div className="status-pill">
               <span></span>
-              Protected
+              Seguro
             </div>
           </div>
 
-          <div className="tabs solo-dos">
-            <button
-              type="button"
-              className={modo === "registro" ? "tab activo" : "tab"}
-              onClick={() => cambiarModo("registro")}
-            >
-              Registro
-            </button>
+          {modo !== "recuperacion" && (
+            <div className="tabs solo-dos">
+              <button
+                type="button"
+                className={modo === "registro" ? "tab activo" : "tab"}
+                onClick={() => cambiarModo("registro")}
+              >
+                Registro
+              </button>
 
-            <button
-              type="button"
-              className={modo === "login" ? "tab activo" : "tab"}
-              onClick={() => cambiarModo("login")}
-            >
-              Login
-            </button>
-          </div>
+              <button
+                type="button"
+                className={modo === "login" ? "tab activo" : "tab"}
+                onClick={() => cambiarModo("login")}
+              >
+                Login
+              </button>
+            </div>
+          )}
 
           {modo === "registro" && (
             <div className="formulario">
@@ -952,7 +1045,6 @@ function App() {
                         onChange={manejarCambio}
                         maxLength="8"
                       />
-
                       {dniEstado.texto && (
                         <small
                           className={
@@ -977,7 +1069,6 @@ function App() {
                         onChange={manejarCambio}
                         maxLength="9"
                       />
-
                       {phoneEstado.texto && (
                         <small
                           className={
@@ -1001,7 +1092,6 @@ function App() {
                         value={formData.email}
                         onChange={manejarCambio}
                       />
-
                       {emailEstado.texto && (
                         <small
                           className={
@@ -1308,7 +1398,136 @@ function App() {
               <button className="boton-principal" type="submit" disabled={cargando}>
                 {cargando ? "Ingresando..." : "Ingresar"}
               </button>
+
+              <button
+                type="button"
+                className="link-recuperacion"
+                onClick={irARecuperacion}
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
             </form>
+          )}
+
+          {modo === "recuperacion" && (
+            <div className="formulario recovery-box">
+              {recoveryStep === 1 && (
+                <form onSubmit={solicitarCodigoRecuperacion}>
+                  <div className="step-title">
+                    <h3>Solicita tu código</h3>
+                    <p>
+                      Ingresa tu correo registrado. Te enviaremos un código de 6
+                      dígitos para cambiar tu contraseña.
+                    </p>
+                  </div>
+
+                  <div className="grupo">
+                    <label>Correo electrónico</label>
+                    <input
+                      type="email"
+                      name="email"
+                      placeholder="ejemplo@gmail.com"
+                      value={formData.email}
+                      onChange={manejarCambio}
+                      required
+                    />
+                  </div>
+
+                  <button className="boton-principal" type="submit" disabled={cargando}>
+                    {cargando ? "Enviando..." : "Enviar código"}
+                  </button>
+                </form>
+              )}
+
+              {recoveryStep === 2 && (
+                <form onSubmit={validarCodigoRecuperacion}>
+                  <div className="step-title">
+                    <h3>Valida el código</h3>
+                    <p>Revisa tu correo e ingresa el código recibido.</p>
+                  </div>
+
+                  <div className="grupo">
+                    <label>Código de recuperación</label>
+                    <input
+                      className="codigo-input inline-code"
+                      type="text"
+                      name="recoveryCode"
+                      placeholder="000000"
+                      value={formData.recoveryCode}
+                      onChange={manejarCambio}
+                      maxLength="6"
+                      required
+                    />
+                  </div>
+
+                  <button className="boton-principal" type="submit" disabled={cargando}>
+                    {cargando ? "Validando..." : "Validar código"}
+                  </button>
+
+                  <button
+                    className="boton-secundario"
+                    type="button"
+                    onClick={solicitarCodigoRecuperacion}
+                    disabled={cargando}
+                  >
+                    Reenviar código
+                  </button>
+                </form>
+              )}
+
+              {recoveryStep === 3 && (
+                <form onSubmit={cambiarPasswordRecuperacion}>
+                  <div className="step-title">
+                    <h3>Crea una nueva contraseña</h3>
+                    <p>La nueva contraseña debe tener mínimo 6 caracteres.</p>
+                  </div>
+
+                  <div className="grupo">
+                    <label>Nueva contraseña</label>
+                    <input
+                      type="password"
+                      name="newPassword"
+                      placeholder="Nueva contraseña"
+                      value={formData.newPassword}
+                      onChange={manejarCambio}
+                      required
+                    />
+                  </div>
+
+                  <div className="grupo">
+                    <label>Confirmar contraseña</label>
+                    <input
+                      type="password"
+                      name="confirmNewPassword"
+                      placeholder="Repite la nueva contraseña"
+                      value={formData.confirmNewPassword}
+                      onChange={manejarCambio}
+                      required
+                    />
+                  </div>
+
+                  <button className="boton-principal" type="submit" disabled={cargando}>
+                    {cargando ? "Actualizando..." : "Cambiar contraseña"}
+                  </button>
+                </form>
+              )}
+
+              {recoveryStep === 4 && (
+                <div className="recovery-final">
+                  <div className="success-badge">✓</div>
+                  <h3>Contraseña actualizada</h3>
+                  <p>Ahora puedes iniciar sesión usando tu nueva contraseña.</p>
+
+                  <button
+                    className="boton-principal"
+                    type="button"
+                    onClick={() => cambiarModo("login")}
+                  >
+                    Ir al login
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {mensaje && (

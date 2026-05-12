@@ -75,4 +75,28 @@ public class EmailService {
 
         javaMailSender.send(mensaje);
     }
+
+    public void enviarCodigoRecuperacion(
+            String correoDestino,
+            String nombre,
+            String codigo,
+            int minutos
+    ) {
+        SimpleMailMessage mensaje = new SimpleMailMessage();
+
+        mensaje.setFrom(correoEmisor);
+        mensaje.setTo(correoDestino);
+        mensaje.setSubject("Recuperación de contraseña - IntiFix");
+        mensaje.setText(
+                "Hola " + nombre + ",\n\n" +
+                "Solicitaste recuperar tu contraseña en IntiFix.\n\n" +
+                "Tu código de recuperación es: " + codigo + "\n\n" +
+                "Este código vence en " + minutos + " minutos.\n\n" +
+                "Si tú no solicitaste este cambio, ignora este mensaje.\n\n" +
+                "Atentamente,\n" +
+                "Equipo IntiFix"
+        );
+
+        javaMailSender.send(mensaje);
+    }
 }
