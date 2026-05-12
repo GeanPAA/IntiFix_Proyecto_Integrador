@@ -19,43 +19,27 @@ public class AdminSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        String adminEmail = "admin@intifix.com";
 
-        String adminEmail = System.getenv("ADMIN_EMAIL");
-        String adminPassword = System.getenv("ADMIN_PASSWORD");
-
-        if (adminEmail == null || adminEmail.isBlank()) {
-            System.out.println("ADMIN_EMAIL no configurado. No se creó admin inicial.");
+        if (userRepository.existsByEmail(adminEmail)) {
             return;
         }
 
-        if (adminPassword == null || adminPassword.isBlank()) {
-            System.out.println("ADMIN_PASSWORD no configurado. No se creó admin inicial.");
-            return;
-        }
+        User admin = new User();
+        admin.setName("Administrador IntiFix");
+        admin.setDni("00000000");
+        admin.setEmail(adminEmail);
+        admin.setPhone("999999999");
+        admin.setPassword(passwordEncoder.encode("admin123"));
+        admin.setRole("ADMIN");
+        admin.setVerified(true);
+        admin.setAccountStatus("APROBADO");
+        admin.setFailedAttempts(0);
+        admin.setLockedUntil(null);
+        admin.setRecoveryCode(null);
+        admin.setRecoveryCodeExpiresAt(null);
+        admin.setVerificationMethod("EMAIL");
 
-        if (!userRepository.existsByEmail(adminEmail)) {
-            User admin = new User();
-
-            admin.setName(System.getenv().getOrDefault("ADMIN_NAME", "Administrador"));
-            admin.setEmail(adminEmail);
-            admin.setPassword(passwordEncoder.encode(adminPassword));
-            admin.setDni(System.getenv().getOrDefault("ADMIN_DNI", "00000000"));
-            admin.setPhone(System.getenv().getOrDefault("ADMIN_PHONE", "999999999"));
-            admin.setRole("ADMIN");
-            admin.setAccountStatus("ACTIVO");
-            admin.setVerified(true);
-
-            admin.setLocationType("ADMIN");
-            admin.setServiceZone("Sistema");
-            admin.setAvailability("Disponible");
-            admin.setSpecialties("Administración");
-            admin.setVerificationMethod("Sistema");
-
-            userRepository.save(admin);
-
-            System.out.println("Admin creado correctamente: " + adminEmail);
-        } else {
-            System.out.println("El admin ya existe: " + adminEmail);
-        }
+        userRepository.save(admin);
     }
 }

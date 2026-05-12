@@ -1,11 +1,10 @@
 package com.intifix.intifix_proyecto.repository;
 
-import java.util.List;
-import java.util.Optional;
-
+import com.intifix.intifix_proyecto.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import com.intifix.intifix_proyecto.model.User;
+import java.util.List;
+import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 

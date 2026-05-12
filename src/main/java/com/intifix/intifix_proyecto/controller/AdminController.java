@@ -1,111 +1,34 @@
 package com.intifix.intifix_proyecto.controller;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
+import com.intifix.intifix_proyecto.dto.response.PendingRegistrationResponse;
+import com.intifix.intifix_proyecto.service.TechnicianService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import com.intifix.intifix_proyecto.model.User;
-import com.intifix.intifix_proyecto.repository.UserRepository;
-import com.intifix.intifix_proyecto.service.EmailService;
+import java.util.List;
 
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping("/api/admin/technicians")
 public class AdminController {
 
-    private final UserRepository userRepository;
-    private final EmailService emailService;
+    private final TechnicianService technicianService;
 
-    public AdminController(UserRepository userRepository, EmailService emailService) {
-        this.userRepository = userRepository;
-        this.emailService = emailService;
+    public AdminController(TechnicianService technicianService) {
+        this.technicianService = technicianService;
     }
 
-    @GetMapping("/technicians/pending")
-    public ResponseEntity<List<Map<String, Object>>> getPendingTechnicians() {
-
-        List<User> technicians = userRepository.findByRoleAndAccountStatus("TECNICO", "PENDIENTE");
-
-        List<Map<String, Object>> response = technicians.stream()
-                .map(this::toTechnicianMap)
-                .toList();
-
-        return ResponseEntity.ok(response);
+    @GetMapping("/pending")
+    public ResponseEntity<List<PendingRegistrationResponse>> getPendingTechnicians() {
+        return ResponseEntity.ok(technicianService.obtenerTecnicosPendientes());
     }
 
-    @PostMapping("/technicians/{id}/approve")
+    @PostMapping("/{id}/approve")
     public ResponseEntity<String> approveTechnician(@PathVariable Long id) {
-
-        User technician = userRepository.findById(id).orElse(null);
-
-        if (technician == null) {
-            return ResponseEntity.badRequest().body("Técnico no encontrado.");
-        }
-
-        if (!"TECNICO".equals(technician.getRole())) {
-            return ResponseEntity.badRequest().body("El usuario no es técnico.");
-        }
-
-        technician.setAccountStatus("APROBADO");
-        userRepository.save(technician);
-
-        try {
-            emailService.enviarNotificacionTecnicoAprobado(
-                    technician.getEmail(),
-                    technician.getName()
-            );
-        } catch (Exception e) {
-            return ResponseEntity.ok("Técnico aprobado, pero no se pudo enviar el correo de notificación.");
-        }
-
-        return ResponseEntity.ok("Técnico aprobado correctamente.");
+        return technicianService.aprobarTecnico(id);
     }
 
-    @PostMapping("/technicians/{id}/reject")
+    @PostMapping("/{id}/reject")
     public ResponseEntity<String> rejectTechnician(@PathVariable Long id) {
-
-        User technician = userRepository.findById(id).orElse(null);
-
-        if (technician == null) {
-            return ResponseEntity.badRequest().body("Técnico no encontrado.");
-        }
-
-        if (!"TECNICO".equals(technician.getRole())) {
-            return ResponseEntity.badRequest().body("El usuario no es técnico.");
-        }
-
-        technician.setAccountStatus("RECHAZADO");
-        userRepository.save(technician);
-
-        try {
-            emailService.enviarNotificacionTecnicoRechazado(
-                    technician.getEmail(),
-                    technician.getName()
-            );
-        } catch (Exception e) {
-            return ResponseEntity.ok("Técnico rechazado, pero no se pudo enviar el correo de notificación.");
-        }
-
-        return ResponseEntity.ok("Técnico rechazado correctamente.");
-    }
-
-    private Map<String, Object> toTechnicianMap(User user) {
-        Map<String, Object> map = new HashMap<>();
-
-        map.put("id", user.getId());
-        map.put("name", user.getName());
-        map.put("dni", user.getDni());
-        map.put("email", user.getEmail());
-        map.put("phone", user.getPhone());
-        map.put("role", user.getRole());
-        map.put("accountStatus", user.getAccountStatus());
-        map.put("specialties", user.getSpecialties());
-        map.put("locationType", user.getLocationType());
-        map.put("serviceZone", user.getServiceZone());
-        map.put("availability", user.getAvailability());
-
-        return map;
+        return technicianService.rechazarTecnico(id);
     }
 }

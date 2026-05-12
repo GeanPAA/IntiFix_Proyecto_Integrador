@@ -90,7 +90,7 @@ function App() {
     }
 
     if (!formData.email.includes("@")) {
-      setEmailEstado({ texto: "Ingresa un correo válido", tipo: "error" });
+      setEmailEstado({ texto: "Ingresa un correo válido.", tipo: "error" });
       return;
     }
 
@@ -109,8 +109,8 @@ function App() {
       return;
     }
 
-    if (formData.dni.length < 8) {
-      setDniEstado({ texto: "El DNI debe tener 8 números", tipo: "error" });
+    if (!/^[0-9]{8}$/.test(formData.dni)) {
+      setDniEstado({ texto: "El DNI debe tener 8 números.", tipo: "error" });
       return;
     }
 
@@ -131,7 +131,7 @@ function App() {
 
     if (!/^9[0-9]{8}$/.test(formData.phone)) {
       setPhoneEstado({
-        texto: "El teléfono debe tener 9 dígitos y empezar con 9",
+        texto: "El teléfono debe tener 9 dígitos y empezar con 9.",
         tipo: "error",
       });
       return;
@@ -148,7 +148,10 @@ function App() {
     const { name, value } = e.target;
 
     if (name === "dni") {
-      setFormData({ ...formData, dni: value.replace(/\D/g, "").slice(0, 8) });
+      setFormData({
+        ...formData,
+        dni: value.replace(/\D/g, "").slice(0, 8),
+      });
       return;
     }
 
@@ -161,7 +164,10 @@ function App() {
     }
 
     if (name === "code") {
-      setFormData({ ...formData, code: value.replace(/\D/g, "").slice(0, 6) });
+      setFormData({
+        ...formData,
+        code: value.replace(/\D/g, "").slice(0, 6),
+      });
       return;
     }
 
@@ -250,16 +256,32 @@ function App() {
 
   const validarEmailDisponible = async (email) => {
     try {
+      setEmailEstado({ texto: "Validando correo...", tipo: "validando" });
+
       const respuesta = await fetch(
         `${API_URL}/check-email?email=${encodeURIComponent(email)}`
       );
 
-      const texto = await respuesta.text();
+      const data = await respuesta.json();
 
       if (!respuesta.ok) {
-        setEmailEstado({ texto, tipo: "error" });
+        setEmailEstado({
+          texto: "No se pudo validar el correo.",
+          tipo: "error",
+        });
+        return;
+      }
+
+      if (data.exists) {
+        setEmailEstado({
+          texto: "Este correo ya está registrado.",
+          tipo: "error",
+        });
       } else {
-        setEmailEstado({ texto, tipo: "exito" });
+        setEmailEstado({
+          texto: "Correo disponible.",
+          tipo: "exito",
+        });
       }
     } catch {
       setEmailEstado({
@@ -271,16 +293,32 @@ function App() {
 
   const validarDniDisponible = async (dni) => {
     try {
+      setDniEstado({ texto: "Validando DNI...", tipo: "validando" });
+
       const respuesta = await fetch(
         `${API_URL}/check-dni?dni=${encodeURIComponent(dni)}`
       );
 
-      const texto = await respuesta.text();
+      const data = await respuesta.json();
 
       if (!respuesta.ok) {
-        setDniEstado({ texto, tipo: "error" });
+        setDniEstado({
+          texto: "No se pudo validar el DNI.",
+          tipo: "error",
+        });
+        return;
+      }
+
+      if (data.exists) {
+        setDniEstado({
+          texto: "Este DNI ya está registrado.",
+          tipo: "error",
+        });
       } else {
-        setDniEstado({ texto, tipo: "exito" });
+        setDniEstado({
+          texto: "DNI disponible.",
+          tipo: "exito",
+        });
       }
     } catch {
       setDniEstado({
@@ -292,16 +330,32 @@ function App() {
 
   const validarPhoneDisponible = async (phone) => {
     try {
+      setPhoneEstado({ texto: "Validando teléfono...", tipo: "validando" });
+
       const respuesta = await fetch(
         `${API_URL}/check-phone?phone=${encodeURIComponent(phone)}`
       );
 
-      const texto = await respuesta.text();
+      const data = await respuesta.json();
 
       if (!respuesta.ok) {
-        setPhoneEstado({ texto, tipo: "error" });
+        setPhoneEstado({
+          texto: "No se pudo validar el teléfono.",
+          tipo: "error",
+        });
+        return;
+      }
+
+      if (data.exists) {
+        setPhoneEstado({
+          texto: "Este teléfono ya está registrado.",
+          tipo: "error",
+        });
       } else {
-        setPhoneEstado({ texto, tipo: "exito" });
+        setPhoneEstado({
+          texto: "Teléfono disponible.",
+          tipo: "exito",
+        });
       }
     } catch {
       setPhoneEstado({
@@ -327,24 +381,28 @@ function App() {
         throw new Error("El DNI debe tener 8 números.");
       }
 
-      if (dniEstado.tipo === "error") {
-        throw new Error(dniEstado.texto);
+      if (dniEstado.tipo !== "exito") {
+        throw new Error(dniEstado.texto || "Espera la validación del DNI.");
       }
 
       if (!formData.email.includes("@")) {
         throw new Error("Ingresa un correo válido.");
       }
 
-      if (emailEstado.tipo === "error") {
-        throw new Error(emailEstado.texto);
+      if (emailEstado.tipo !== "exito") {
+        throw new Error(
+          emailEstado.texto || "Espera la validación del correo."
+        );
       }
 
       if (!/^9[0-9]{8}$/.test(formData.phone)) {
         throw new Error("El teléfono debe tener 9 dígitos y empezar con 9.");
       }
 
-      if (phoneEstado.tipo === "error") {
-        throw new Error(phoneEstado.texto);
+      if (phoneEstado.tipo !== "exito") {
+        throw new Error(
+          phoneEstado.texto || "Espera la validación del teléfono."
+        );
       }
 
       if (formData.password.length < 6) {
@@ -471,7 +529,7 @@ function App() {
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo enviar el código.");
       }
 
       setFormData({
@@ -513,7 +571,7 @@ function App() {
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo confirmar el registro.");
       }
 
       setModalCodigo(false);
@@ -532,7 +590,10 @@ function App() {
   };
 
   const solicitarCodigoRecuperacion = async (e) => {
-    e.preventDefault();
+    if (e) {
+      e.preventDefault();
+    }
+
     setCargando(true);
     setMensaje("");
     setTipoMensaje("");
@@ -555,7 +616,7 @@ function App() {
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo enviar el código.");
       }
 
       setFormData({
@@ -592,14 +653,14 @@ function App() {
         },
         body: JSON.stringify({
           email: formData.email,
-          codigo: formData.recoveryCode,
+          code: formData.recoveryCode,
         }),
       });
 
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo validar el código.");
       }
 
       setRecoveryStep(3);
@@ -633,15 +694,15 @@ function App() {
         },
         body: JSON.stringify({
           email: formData.email,
-          codigo: formData.recoveryCode,
-          nuevaPassword: formData.newPassword,
+          code: formData.recoveryCode,
+          newPassword: formData.newPassword,
         }),
       });
 
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo cambiar la contraseña.");
       }
 
       setRecoveryStep(4);
@@ -732,7 +793,7 @@ function App() {
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo aprobar el técnico.");
       }
 
       mostrarMensaje("✅ " + texto, "exito");
@@ -751,7 +812,7 @@ function App() {
       const texto = await respuesta.text();
 
       if (!respuesta.ok) {
-        throw new Error(texto);
+        throw new Error(texto || "No se pudo rechazar el técnico.");
       }
 
       mostrarMensaje("✅ " + texto, "exito");
@@ -852,12 +913,24 @@ function App() {
                   <div className="technician-card" key={tecnico.id}>
                     <div>
                       <h3>{tecnico.name}</h3>
-                      <p><strong>DNI:</strong> {tecnico.dni}</p>
-                      <p><strong>Correo:</strong> {tecnico.email}</p>
-                      <p><strong>Teléfono:</strong> {tecnico.phone}</p>
-                      <p><strong>Especialidades:</strong> {tecnico.specialties}</p>
-                      <p><strong>Zona:</strong> {tecnico.serviceZone}</p>
-                      <p><strong>Disponibilidad:</strong> {tecnico.availability}</p>
+                      <p>
+                        <strong>DNI:</strong> {tecnico.dni}
+                      </p>
+                      <p>
+                        <strong>Correo:</strong> {tecnico.email}
+                      </p>
+                      <p>
+                        <strong>Teléfono:</strong> {tecnico.phone}
+                      </p>
+                      <p>
+                        <strong>Especialidades:</strong> {tecnico.specialties}
+                      </p>
+                      <p>
+                        <strong>Zona:</strong> {tecnico.serviceZone}
+                      </p>
+                      <p>
+                        <strong>Disponibilidad:</strong> {tecnico.availability}
+                      </p>
                     </div>
 
                     <div className="admin-actions">
@@ -882,7 +955,11 @@ function App() {
           )}
 
           {mensaje && (
-            <div className={tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"}>
+            <div
+              className={
+                tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"
+              }
+            >
               {mensaje}
             </div>
           )}
@@ -1144,7 +1221,10 @@ function App() {
                     >
                       <div className="verify-icon">✉</div>
                       <h4>Correo electrónico</h4>
-                      <p>Recibirás el código en {formData.email || "tu correo"}.</p>
+                      <p>
+                        Recibirás el código en{" "}
+                        {formData.email || "tu correo"}.
+                      </p>
                     </button>
 
                     <button
@@ -1197,7 +1277,9 @@ function App() {
                   </div>
 
                   <div className="wizard-section">
-                    <label className="section-label">Ubicación de atención</label>
+                    <label className="section-label">
+                      Ubicación de atención
+                    </label>
 
                     <div className="location-switch">
                       <button
@@ -1395,7 +1477,11 @@ function App() {
                 />
               </div>
 
-              <button className="boton-principal" type="submit" disabled={cargando}>
+              <button
+                className="boton-principal"
+                type="submit"
+                disabled={cargando}
+              >
                 {cargando ? "Ingresando..." : "Ingresar"}
               </button>
 
@@ -1433,7 +1519,11 @@ function App() {
                     />
                   </div>
 
-                  <button className="boton-principal" type="submit" disabled={cargando}>
+                  <button
+                    className="boton-principal"
+                    type="submit"
+                    disabled={cargando}
+                  >
                     {cargando ? "Enviando..." : "Enviar código"}
                   </button>
                 </form>
@@ -1460,7 +1550,11 @@ function App() {
                     />
                   </div>
 
-                  <button className="boton-principal" type="submit" disabled={cargando}>
+                  <button
+                    className="boton-principal"
+                    type="submit"
+                    disabled={cargando}
+                  >
                     {cargando ? "Validando..." : "Validar código"}
                   </button>
 
@@ -1506,7 +1600,11 @@ function App() {
                     />
                   </div>
 
-                  <button className="boton-principal" type="submit" disabled={cargando}>
+                  <button
+                    className="boton-principal"
+                    type="submit"
+                    disabled={cargando}
+                  >
                     {cargando ? "Actualizando..." : "Cambiar contraseña"}
                   </button>
                 </form>
@@ -1608,7 +1706,9 @@ function App() {
               onClick={reenviarCodigo}
               disabled={cargando}
             >
-              {segundosRestantes === 0 ? "Enviar nuevo código" : "Reenviar código"}
+              {segundosRestantes === 0
+                ? "Enviar nuevo código"
+                : "Reenviar código"}
             </button>
 
             <button

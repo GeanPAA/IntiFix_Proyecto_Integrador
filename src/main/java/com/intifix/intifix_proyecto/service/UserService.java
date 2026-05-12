@@ -1,8 +1,7 @@
 package com.intifix.intifix_proyecto.service;
 
-import org.springframework.stereotype.Service;
-
 import com.intifix.intifix_proyecto.repository.UserRepository;
+import org.springframework.stereotype.Service;
 
 @Service
 public class UserService {
@@ -13,11 +12,15 @@ public class UserService {
         this.userRepository = userRepository;
     }
 
-    public boolean emailExiste(String email) {
+    public boolean existsByEmail(String email) {
         return userRepository.existsByEmail(email);
     }
 
-    public boolean dniExiste(String dni) {
+    public boolean existsByDni(String dni) {
         return userRepository.existsByDni(dni);
+    }
+
+    public boolean existsByPhone(String phone) {
+        return userRepository.existsByPhone(phone);
     }
 }

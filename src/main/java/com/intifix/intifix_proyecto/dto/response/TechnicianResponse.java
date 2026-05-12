@@ -1,4 +1,4 @@
-package com.intifix.intifix_proyecto.dto;
+package com.intifix.intifix_proyecto.dto.response;
 
 public class TechnicianResponse {
 
@@ -44,39 +44,79 @@ public class TechnicianResponse {
         return id;
     }
 
+	public void setId(Long id) {
+        this.id = id;
+    }
+
     public String getName() {
         return name;
+    }
+
+	public void setName(String name) {
+        this.name = name;
     }
 
     public String getDni() {
         return dni;
     }
 
+	public void setDni(String dni) {
+        this.dni = dni;
+    }
+
     public String getEmail() {
         return email;
+    }
+
+	public void setEmail(String email) {
+        this.email = email;
     }
 
     public String getPhone() {
         return phone;
     }
 
+	public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
     public String getSpecialties() {
         return specialties;
+    }
+
+	public void setSpecialties(String specialties) {
+        this.specialties = specialties;
     }
 
     public String getLocationType() {
         return locationType;
     }
 
+	public void setLocationType(String locationType) {
+        this.locationType = locationType;
+    }
+
     public String getServiceZone() {
         return serviceZone;
+    }
+
+	public void setServiceZone(String serviceZone) {
+        this.serviceZone = serviceZone;
     }
 
     public String getAvailability() {
         return availability;
     }
 
+	public void setAvailability(String availability) {
+        this.availability = availability;
+    }
+
     public String getAccountStatus() {
         return accountStatus;
+    }
+
+	public void setAccountStatus(String accountStatus) {
+        this.accountStatus = accountStatus;
     }
 }

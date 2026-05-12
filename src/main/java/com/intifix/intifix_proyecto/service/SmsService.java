@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 public class SmsService {
 
     public void enviarCodigoVerificacion(String telefonoDestino, String nombre, String codigo, int minutos) {
-
         System.out.println("==========================================");
         System.out.println("SMS SIMULADO - INTIFIX");
         System.out.println("Para: " + telefonoDestino);
