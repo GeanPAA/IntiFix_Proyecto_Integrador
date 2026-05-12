@@ -26,6 +26,21 @@ const AVAILABILITY = [
   "Tiempo completo",
 ];
 
+const estadoClass = (tipo) =>
+  tipo === "exito" ? "ayuda-campo exito-texto" : "ayuda-campo error-texto";
+
+const ayudaPasswordClass = (password) => {
+  if (password.length === 0) return "ayuda-campo info-texto";
+  if (password.length >= 6) return "ayuda-campo exito-texto";
+  return "ayuda-campo error-texto";
+};
+
+const ayudaPasswordTexto = (password) => {
+  if (password.length === 0) return "Mínimo 6 caracteres.";
+  if (password.length >= 6) return "✓ Contraseña válida.";
+  return "✕ La contraseña debe tener mínimo 6 caracteres.";
+};
+
 function App() {
   const [modo, setModo] = useState("registro");
   const [step, setStep] = useState(1);
@@ -84,18 +99,20 @@ function App() {
   useEffect(() => {
     if (modo !== "registro") return;
 
-    if (formData.email.trim() === "") {
+    const email = formData.email.trim().toLowerCase();
+
+    if (email === "") {
       setEmailEstado({ texto: "", tipo: "" });
       return;
     }
 
-    if (!formData.email.includes("@")) {
+    if (!email.includes("@")) {
       setEmailEstado({ texto: "Ingresa un correo válido.", tipo: "error" });
       return;
     }
 
     const delay = setTimeout(() => {
-      validarEmailDisponible(formData.email);
+      validarEmailDisponible(email);
     }, 600);
 
     return () => clearTimeout(delay);
@@ -179,6 +196,14 @@ function App() {
       return;
     }
 
+    if (name === "email") {
+      setFormData({
+        ...formData,
+        email: value.trim().toLowerCase(),
+      });
+      return;
+    }
+
     setFormData({ ...formData, [name]: value });
   };
 
@@ -190,6 +215,7 @@ function App() {
   const limpiarTodo = () => {
     setStep(1);
     setRecoveryStep(1);
+
     setFormData({
       role: "CLIENTE",
       name: "",
@@ -230,6 +256,7 @@ function App() {
     setMensaje("");
     setTipoMensaje("");
     setRecoveryStep(1);
+
     setFormData((prev) => ({
       ...prev,
       recoveryCode: "",
@@ -241,17 +268,12 @@ function App() {
   const toggleArrayItem = (field, value) => {
     const actual = formData[field];
 
-    if (actual.includes(value)) {
-      setFormData({
-        ...formData,
-        [field]: actual.filter((item) => item !== value),
-      });
-    } else {
-      setFormData({
-        ...formData,
-        [field]: [...actual, value],
-      });
-    }
+    setFormData({
+      ...formData,
+      [field]: actual.includes(value)
+        ? actual.filter((item) => item !== value)
+        : [...actual, value],
+    });
   };
 
   const validarEmailDisponible = async (email) => {
@@ -272,17 +294,11 @@ function App() {
         return;
       }
 
-      if (data.exists) {
-        setEmailEstado({
-          texto: "Este correo ya está registrado.",
-          tipo: "error",
-        });
-      } else {
-        setEmailEstado({
-          texto: "Correo disponible.",
-          tipo: "exito",
-        });
-      }
+      setEmailEstado(
+        data.exists
+          ? { texto: "Este correo ya está registrado.", tipo: "error" }
+          : { texto: "Correo disponible.", tipo: "exito" }
+      );
     } catch {
       setEmailEstado({
         texto: "No se pudo validar el correo. Revisa si el backend está encendido.",
@@ -309,17 +325,11 @@ function App() {
         return;
       }
 
-      if (data.exists) {
-        setDniEstado({
-          texto: "Este DNI ya está registrado.",
-          tipo: "error",
-        });
-      } else {
-        setDniEstado({
-          texto: "DNI disponible.",
-          tipo: "exito",
-        });
-      }
+      setDniEstado(
+        data.exists
+          ? { texto: "Este DNI ya está registrado.", tipo: "error" }
+          : { texto: "DNI disponible.", tipo: "exito" }
+      );
     } catch {
       setDniEstado({
         texto: "No se pudo validar el DNI. Revisa si el backend está encendido.",
@@ -346,17 +356,11 @@ function App() {
         return;
       }
 
-      if (data.exists) {
-        setPhoneEstado({
-          texto: "Este teléfono ya está registrado.",
-          tipo: "error",
-        });
-      } else {
-        setPhoneEstado({
-          texto: "Teléfono disponible.",
-          tipo: "exito",
-        });
-      }
+      setPhoneEstado(
+        data.exists
+          ? { texto: "Este teléfono ya está registrado.", tipo: "error" }
+          : { texto: "Teléfono disponible.", tipo: "exito" }
+      );
     } catch {
       setPhoneEstado({
         texto: "No se pudo validar el teléfono. Revisa si el backend está encendido.",
@@ -497,9 +501,9 @@ function App() {
   };
 
   const construirBodyRegistro = () => ({
-    name: formData.name,
+    name: formData.name.trim(),
     dni: formData.dni,
-    email: formData.email,
+    email: formData.email.trim().toLowerCase(),
     phone: formData.phone,
     password: formData.password,
     role: formData.role,
@@ -563,7 +567,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           code: formData.code,
         }),
       });
@@ -590,9 +594,7 @@ function App() {
   };
 
   const solicitarCodigoRecuperacion = async (e) => {
-    if (e) {
-      e.preventDefault();
-    }
+    if (e) e.preventDefault();
 
     setCargando(true);
     setMensaje("");
@@ -609,7 +611,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
         }),
       });
 
@@ -652,7 +654,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           code: formData.recoveryCode,
         }),
       });
@@ -693,7 +695,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           code: formData.recoveryCode,
           newPassword: formData.newPassword,
         }),
@@ -727,7 +729,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           password: formData.password,
         }),
       });
@@ -913,24 +915,12 @@ function App() {
                   <div className="technician-card" key={tecnico.id}>
                     <div>
                       <h3>{tecnico.name}</h3>
-                      <p>
-                        <strong>DNI:</strong> {tecnico.dni}
-                      </p>
-                      <p>
-                        <strong>Correo:</strong> {tecnico.email}
-                      </p>
-                      <p>
-                        <strong>Teléfono:</strong> {tecnico.phone}
-                      </p>
-                      <p>
-                        <strong>Especialidades:</strong> {tecnico.specialties}
-                      </p>
-                      <p>
-                        <strong>Zona:</strong> {tecnico.serviceZone}
-                      </p>
-                      <p>
-                        <strong>Disponibilidad:</strong> {tecnico.availability}
-                      </p>
+                      <p><strong>DNI:</strong> {tecnico.dni}</p>
+                      <p><strong>Correo:</strong> {tecnico.email}</p>
+                      <p><strong>Teléfono:</strong> {tecnico.phone}</p>
+                      <p><strong>Especialidades:</strong> {tecnico.specialties}</p>
+                      <p><strong>Zona:</strong> {tecnico.serviceZone}</p>
+                      <p><strong>Disponibilidad:</strong> {tecnico.availability}</p>
                     </div>
 
                     <div className="admin-actions">
@@ -955,11 +945,7 @@ function App() {
           )}
 
           {mensaje && (
-            <div
-              className={
-                tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"
-              }
-            >
+            <div className={tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"}>
               {mensaje}
             </div>
           )}
@@ -1047,11 +1033,7 @@ function App() {
                   <div className="role-cards">
                     <button
                       type="button"
-                      className={
-                        formData.role === "CLIENTE"
-                          ? "role-card selected"
-                          : "role-card"
-                      }
+                      className={formData.role === "CLIENTE" ? "role-card selected" : "role-card"}
                       onClick={() =>
                         setFormData({
                           ...formData,
@@ -1073,17 +1055,8 @@ function App() {
 
                     <button
                       type="button"
-                      className={
-                        formData.role === "TECNICO"
-                          ? "role-card selected"
-                          : "role-card"
-                      }
-                      onClick={() =>
-                        setFormData({
-                          ...formData,
-                          role: "TECNICO",
-                        })
-                      }
+                      className={formData.role === "TECNICO" ? "role-card selected" : "role-card"}
+                      onClick={() => setFormData({ ...formData, role: "TECNICO" })}
                     >
                       <div className="role-icon">🛠</div>
                       <h4>Técnico</h4>
@@ -1123,13 +1096,7 @@ function App() {
                         maxLength="8"
                       />
                       {dniEstado.texto && (
-                        <small
-                          className={
-                            dniEstado.tipo === "exito"
-                              ? "ayuda-campo exito-texto"
-                              : "ayuda-campo error-texto"
-                          }
-                        >
+                        <small className={estadoClass(dniEstado.tipo)}>
                           {dniEstado.tipo === "exito" ? "✓ " : "✕ "}
                           {dniEstado.texto}
                         </small>
@@ -1147,13 +1114,7 @@ function App() {
                         maxLength="9"
                       />
                       {phoneEstado.texto && (
-                        <small
-                          className={
-                            phoneEstado.tipo === "exito"
-                              ? "ayuda-campo exito-texto"
-                              : "ayuda-campo error-texto"
-                          }
-                        >
+                        <small className={estadoClass(phoneEstado.tipo)}>
                           {phoneEstado.tipo === "exito" ? "✓ " : "✕ "}
                           {phoneEstado.texto}
                         </small>
@@ -1170,13 +1131,7 @@ function App() {
                         onChange={manejarCambio}
                       />
                       {emailEstado.texto && (
-                        <small
-                          className={
-                            emailEstado.tipo === "exito"
-                              ? "ayuda-campo exito-texto"
-                              : "ayuda-campo error-texto"
-                          }
-                        >
+                        <small className={estadoClass(emailEstado.tipo)}>
                           {emailEstado.tipo === "exito" ? "✓ " : "✕ "}
                           {emailEstado.texto}
                         </small>
@@ -1184,14 +1139,17 @@ function App() {
                     </div>
 
                     <div className="grupo full">
-                      <label>Contraseña</label>
+                      <label>Crear contraseña</label>
                       <input
                         type="password"
                         name="password"
-                        placeholder="Mínimo 6 caracteres"
+                        placeholder="Ingresa tu contraseña"
                         value={formData.password}
                         onChange={manejarCambio}
                       />
+                      <small className={ayudaPasswordClass(formData.password)}>
+                        {ayudaPasswordTexto(formData.password)}
+                      </small>
                     </div>
                   </div>
                 </div>
@@ -1221,10 +1179,7 @@ function App() {
                     >
                       <div className="verify-icon">✉</div>
                       <h4>Correo electrónico</h4>
-                      <p>
-                        Recibirás el código en{" "}
-                        {formData.email || "tu correo"}.
-                      </p>
+                      <p>Recibirás el código en {formData.email || "tu correo"}.</p>
                     </button>
 
                     <button
@@ -1277,9 +1232,7 @@ function App() {
                   </div>
 
                   <div className="wizard-section">
-                    <label className="section-label">
-                      Ubicación de atención
-                    </label>
+                    <label className="section-label">Ubicación de atención</label>
 
                     <div className="location-switch">
                       <button
@@ -1477,11 +1430,7 @@ function App() {
                 />
               </div>
 
-              <button
-                className="boton-principal"
-                type="submit"
-                disabled={cargando}
-              >
+              <button className="boton-principal" type="submit" disabled={cargando}>
                 {cargando ? "Ingresando..." : "Ingresar"}
               </button>
 
@@ -1519,11 +1468,7 @@ function App() {
                     />
                   </div>
 
-                  <button
-                    className="boton-principal"
-                    type="submit"
-                    disabled={cargando}
-                  >
+                  <button className="boton-principal" type="submit" disabled={cargando}>
                     {cargando ? "Enviando..." : "Enviar código"}
                   </button>
                 </form>
@@ -1550,11 +1495,7 @@ function App() {
                     />
                   </div>
 
-                  <button
-                    className="boton-principal"
-                    type="submit"
-                    disabled={cargando}
-                  >
+                  <button className="boton-principal" type="submit" disabled={cargando}>
                     {cargando ? "Validando..." : "Validar código"}
                   </button>
 
@@ -1581,11 +1522,14 @@ function App() {
                     <input
                       type="password"
                       name="newPassword"
-                      placeholder="Nueva contraseña"
+                      placeholder="Ingresa tu nueva contraseña"
                       value={formData.newPassword}
                       onChange={manejarCambio}
                       required
                     />
+                    <small className={ayudaPasswordClass(formData.newPassword)}>
+                      {ayudaPasswordTexto(formData.newPassword)}
+                    </small>
                   </div>
 
                   <div className="grupo">
@@ -1600,11 +1544,7 @@ function App() {
                     />
                   </div>
 
-                  <button
-                    className="boton-principal"
-                    type="submit"
-                    disabled={cargando}
-                  >
+                  <button className="boton-principal" type="submit" disabled={cargando}>
                     {cargando ? "Actualizando..." : "Cambiar contraseña"}
                   </button>
                 </form>
@@ -1629,11 +1569,7 @@ function App() {
           )}
 
           {mensaje && (
-            <div
-              className={
-                tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"
-              }
-            >
+            <div className={tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"}>
               {mensaje}
             </div>
           )}
@@ -1706,9 +1642,7 @@ function App() {
               onClick={reenviarCodigo}
               disabled={cargando}
             >
-              {segundosRestantes === 0
-                ? "Enviar nuevo código"
-                : "Reenviar código"}
+              {segundosRestantes === 0 ? "Enviar nuevo código" : "Reenviar código"}
             </button>
 
             <button

@@ -12,6 +12,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AuthService {
@@ -19,6 +21,9 @@ public class AuthService {
     private static final int CODE_EXPIRATION_MINUTES = 5;
     private static final int MAX_LOGIN_ATTEMPTS = 3;
     private static final int LOCK_MINUTES = 5;
+
+    private final Map<String, Integer> unknownEmailAttempts = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> unknownEmailLocks = new ConcurrentHashMap<>();
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -164,10 +169,17 @@ public class AuthService {
     }
 
     public ResponseEntity<?> login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getEmail()).orElse(null);
+        String email = normalizarEmail(request.getEmail());
+
+        if (estaBloqueadoCorreoNoRegistrado(email)) {
+            return ResponseEntity.badRequest()
+                    .body("Demasiados intentos fallidos. Intenta nuevamente después de unos minutos.");
+        }
+
+        User user = userRepository.findByEmail(email).orElse(null);
 
         if (user == null) {
-            return ResponseEntity.badRequest().body("El correo no existe.");
+            return manejarIntentoCorreoNoRegistrado(email);
         }
 
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(LocalDateTime.now())) {
@@ -199,6 +211,9 @@ public class AuthService {
         user.setLockedUntil(null);
         userRepository.save(user);
 
+        unknownEmailAttempts.remove(email);
+        unknownEmailLocks.remove(email);
+
         LoginResponse response = new LoginResponse(
                 user.getId(),
                 user.getName(),
@@ -210,6 +225,53 @@ public class AuthService {
         );
 
         return ResponseEntity.ok(response);
+    }
+
+    private String normalizarEmail(String email) {
+        if (email == null) {
+            return "";
+        }
+
+        return email.trim().toLowerCase();
+    }
+
+    private boolean estaBloqueadoCorreoNoRegistrado(String email) {
+        LocalDateTime lockedUntil = unknownEmailLocks.get(email);
+
+        if (lockedUntil == null) {
+            return false;
+        }
+
+        if (lockedUntil.isAfter(LocalDateTime.now())) {
+            return true;
+        }
+
+        unknownEmailLocks.remove(email);
+        unknownEmailAttempts.remove(email);
+
+        return false;
+    }
+
+    private ResponseEntity<String> manejarIntentoCorreoNoRegistrado(String email) {
+        int intentosActuales = unknownEmailAttempts.getOrDefault(email, 0) + 1;
+
+        if (intentosActuales >= MAX_LOGIN_ATTEMPTS) {
+            unknownEmailAttempts.remove(email);
+            unknownEmailLocks.put(email, LocalDateTime.now().plusMinutes(LOCK_MINUTES));
+
+            return ResponseEntity.badRequest().body(
+                    "Demasiados intentos fallidos. Intenta nuevamente en "
+                            + LOCK_MINUTES + " minutos."
+            );
+        }
+
+        unknownEmailAttempts.put(email, intentosActuales);
+
+        int intentosRestantes = MAX_LOGIN_ATTEMPTS - intentosActuales;
+
+        return ResponseEntity.badRequest().body(
+                "Credenciales incorrectas. Intentos restantes: " + intentosRestantes
+        );
     }
 
     private ResponseEntity<String> validarDuplicados(String email, String dni, String phone) {
@@ -257,7 +319,7 @@ public class AuthService {
 
         user.setName(pendingRegistration.getName());
         user.setDni(pendingRegistration.getDni());
-        user.setEmail(pendingRegistration.getEmail());
+        user.setEmail(normalizarEmail(pendingRegistration.getEmail()));
         user.setPhone(pendingRegistration.getPhone());
         user.setPassword(pendingRegistration.getEncodedPassword());
         user.setRole(pendingRegistration.getRole());
