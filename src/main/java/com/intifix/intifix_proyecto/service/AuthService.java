@@ -182,6 +182,10 @@ public class AuthService {
             return manejarIntentoCorreoNoRegistrado(email);
         }
 
+        if ("INACTIVO".equals(user.getAccountStatus())) {
+            return ResponseEntity.badRequest().body("Tu cuenta está desactivada.");
+        }
+
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(LocalDateTime.now())) {
             return ResponseEntity.badRequest()
                     .body("Tu cuenta está bloqueada temporalmente. Intenta nuevamente después de unos minutos.");

@@ -76,4 +76,13 @@ public class UserService {
 
         userRepository.save(user);
     }
+
+    public void reactivateAccount(String email) {
+
+        User user = userRepository.findByEmail(email)
+            .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        user.setAccountStatus("APROBADO"); // o "ACTIVO"
+        userRepository.save(user);
+    }
 }

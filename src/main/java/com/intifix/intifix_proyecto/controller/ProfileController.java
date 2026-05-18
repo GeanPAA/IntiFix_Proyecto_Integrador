@@ -41,13 +41,22 @@ public class ProfileController {
         );
     }
 
-    // 🔴 HU-12 → Eliminar cuenta
+    // 🔴 HU-12 → Desactivar cuenta
     @DeleteMapping("/profile")
     public ResponseEntity<?> deleteProfile(Authentication auth) {
 
         userService.deleteAccount(auth.getName());
 
         return ResponseEntity.ok("Cuenta desactivada correctamente");
+    }
+
+    // Extra → Reactivar cuenta
+    @PutMapping("/profile/reactivate")
+    public ResponseEntity<?> reactivateAccount(Authentication auth) {
+
+        userService.reactivateAccount(auth.getName());
+
+        return ResponseEntity.ok("Cuenta reactivada correctamente");
     }
 }
 
