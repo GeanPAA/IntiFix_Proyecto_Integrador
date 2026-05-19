@@ -3,6 +3,8 @@ import "./App.css";
 
 const API_URL = "http://localhost:8081/api/auth";
 const ADMIN_URL = "http://localhost:8081/api/admin";
+const PROFILE_URL = "http://localhost:8081/api/profile";
+const TECHNICIANS_URL = "http://localhost:8081/api/technicians";
 const CODE_SECONDS = 300;
 
 const SPECIALTIES = [
@@ -50,7 +52,21 @@ function App() {
   const [tipoMensaje, setTipoMensaje] = useState("");
 
   const [usuarioActual, setUsuarioActual] = useState(null);
+  const [authHeader, setAuthHeader] = useState("");
+  const [vistaDashboard, setVistaDashboard] = useState("inicio");
+
   const [tecnicosPendientes, setTecnicosPendientes] = useState([]);
+  const [tecnicosAprobados, setTecnicosAprobados] = useState([]);
+  const [filtroTecnico, setFiltroTecnico] = useState("");
+
+  const [perfil, setPerfil] = useState(null);
+  const [perfilForm, setPerfilForm] = useState({
+    name: "",
+    phone: "",
+    specialties: "",
+    serviceZone: "",
+    availability: "",
+  });
 
   const [emailEstado, setEmailEstado] = useState({ texto: "", tipo: "" });
   const [dniEstado, setDniEstado] = useState({ texto: "", tipo: "" });
@@ -89,6 +105,7 @@ function App() {
           clearInterval(intervalo);
           return 0;
         }
+
         return actual - 1;
       });
     }, 1000);
@@ -160,6 +177,20 @@ function App() {
 
     return () => clearTimeout(delay);
   }, [formData.phone, modo]);
+
+  const crearAuthHeader = (email, password) => {
+    return `Basic ${window.btoa(`${email}:${password}`)}`;
+  };
+
+  const leerRespuesta = async (respuesta) => {
+    const texto = await respuesta.text();
+
+    try {
+      return JSON.parse(texto);
+    } catch {
+      return texto;
+    }
+  };
 
   const manejarCambio = (e) => {
     const { name, value } = e.target;
@@ -394,9 +425,7 @@ function App() {
       }
 
       if (emailEstado.tipo !== "exito") {
-        throw new Error(
-          emailEstado.texto || "Espera la validación del correo."
-        );
+        throw new Error(emailEstado.texto || "Espera la validación del correo.");
       }
 
       if (!/^9[0-9]{8}$/.test(formData.phone)) {
@@ -404,9 +433,7 @@ function App() {
       }
 
       if (phoneEstado.tipo !== "exito") {
-        throw new Error(
-          phoneEstado.texto || "Espera la validación del teléfono."
-        );
+        throw new Error(phoneEstado.texto || "Espera la validación del teléfono.");
       }
 
       if (formData.password.length < 6) {
@@ -723,14 +750,17 @@ function App() {
     setTipoMensaje("");
 
     try {
+      const emailLogin = formData.email.trim().toLowerCase();
+      const passwordLogin = formData.password;
+
       const respuesta = await fetch(`${API_URL}/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email.trim().toLowerCase(),
-          password: formData.password,
+          email: emailLogin,
+          password: passwordLogin,
         }),
       });
 
@@ -747,7 +777,12 @@ function App() {
         throw new Error(data.message || texto || "No se pudo iniciar sesión.");
       }
 
+      const header = crearAuthHeader(emailLogin, passwordLogin);
+
+      setAuthHeader(header);
       setUsuarioActual(data);
+      setVistaDashboard("inicio");
+
       mostrarMensaje(
         "✅ " + (data.message || "Inicio de sesión correcto."),
         "exito"
@@ -756,6 +791,12 @@ function App() {
       if (data.role === "ADMIN") {
         cargarTecnicosPendientes();
       }
+
+      if (data.role === "CLIENTE") {
+        cargarTecnicosAprobados();
+      }
+
+      cargarPerfil(header);
     } catch (error) {
       mostrarMensaje("❌ " + error.message, "error");
     } finally {
@@ -765,6 +806,12 @@ function App() {
 
   const cerrarSesion = () => {
     setUsuarioActual(null);
+    setAuthHeader("");
+    setPerfil(null);
+    setTecnicosAprobados([]);
+    setTecnicosPendientes([]);
+    setFiltroTecnico("");
+    setVistaDashboard("inicio");
     limpiarTodo();
     setModo("login");
     setMensaje("");
@@ -780,7 +827,7 @@ function App() {
         throw new Error("No se pudieron cargar los técnicos pendientes.");
       }
 
-      setTecnicosPendientes(data);
+      setTecnicosPendientes(Array.isArray(data) ? data : []);
     } catch (error) {
       mostrarMensaje("❌ " + error.message, "error");
     }
@@ -824,115 +871,834 @@ function App() {
     }
   };
 
+  const cargarTecnicosAprobados = async () => {
+    try {
+      const respuesta = await fetch(`${TECHNICIANS_URL}/approved`);
+      const data = await respuesta.json();
+
+      if (!respuesta.ok) {
+        throw new Error("No se pudieron cargar los técnicos aprobados.");
+      }
+
+      setTecnicosAprobados(Array.isArray(data) ? data : []);
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const cargarPerfil = async (headerManual = authHeader) => {
+    if (!headerManual) return;
+
+    try {
+      const respuesta = await fetch(PROFILE_URL, {
+        method: "GET",
+        headers: {
+          Authorization: headerManual,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo cargar el perfil."
+        );
+      }
+
+      setPerfil(data);
+      setPerfilForm({
+        name: data.name || "",
+        phone: data.phone || "",
+        specialties: data.specialties || "",
+        serviceZone: data.serviceZone || "",
+        availability: data.availability || "",
+      });
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const actualizarPerfil = async (e) => {
+    e.preventDefault();
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      if (perfilForm.name.trim().length < 3) {
+        throw new Error("Ingresa un nombre válido.");
+      }
+
+      if (!/^9[0-9]{8}$/.test(perfilForm.phone.trim())) {
+        throw new Error("El teléfono debe tener 9 dígitos y empezar con 9.");
+      }
+
+      const respuesta = await fetch(PROFILE_URL, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          name: perfilForm.name.trim(),
+          phone: perfilForm.phone.trim(),
+          specialties: perfilForm.specialties.trim(),
+          serviceZone: perfilForm.serviceZone.trim(),
+          availability: perfilForm.availability.trim(),
+        }),
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo actualizar el perfil."
+        );
+      }
+
+      mostrarMensaje("✅ Perfil actualizado correctamente.", "exito");
+      cargarPerfil();
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const reactivarCuenta = async () => {
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      const emailLogin = formData.email.trim().toLowerCase();
+      const passwordLogin = formData.password;
+
+      if (!emailLogin || !emailLogin.includes("@")) {
+        throw new Error("Ingresa tu correo para reactivar la cuenta.");
+      }
+
+      if (!passwordLogin || passwordLogin.length < 6) {
+        throw new Error("Ingresa tu contraseña para reactivar la cuenta.");
+      }
+
+      const header = crearAuthHeader(emailLogin, passwordLogin);
+
+      const respuesta = await fetch(`${PROFILE_URL}/reactivate`, {
+        method: "PUT",
+        headers: {
+          Authorization: header,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo reactivar la cuenta."
+        );
+      }
+
+      mostrarMensaje(
+        "✅ Cuenta reactivada correctamente. Ahora inicia sesión.",
+        "exito"
+      );
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const tecnicosFiltrados = tecnicosAprobados.filter((tecnico) => {
+    const texto = `${tecnico.name || ""} ${tecnico.email || ""} ${
+      tecnico.phone || ""
+    } ${tecnico.specialties || ""} ${tecnico.serviceZone || ""} ${
+      tecnico.availability || ""
+    }`.toLowerCase();
+
+    return texto.includes(filtroTecnico.toLowerCase());
+  });
+
   const minutos = Math.floor(segundosRestantes / 60);
   const segundos = segundosRestantes % 60;
   const totalSteps = formData.role === "TECNICO" ? 4 : 3;
 
   if (usuarioActual) {
+    const inicialUsuario = usuarioActual.name
+      ? usuarioActual.name.charAt(0).toUpperCase()
+      : "U";
+
     return (
-      <div className="pagina">
-        <div className="app-dashboard">
-          <header className="dashboard-header">
+      <div className="dashboard-layout">
+        <aside className="sidebar-pro">
+          <div className="sidebar-logo">
+            <div className="logo-icon">IF</div>
+
             <div>
               <h1>IntiFix</h1>
-              <p>
-                Bienvenido, <strong>{usuarioActual.name}</strong>
-              </p>
+              <p>Servicios técnicos</p>
+            </div>
+          </div>
+
+          <nav className="sidebar-menu">
+            <button
+              className={vistaDashboard === "inicio" ? "active" : ""}
+              onClick={() => setVistaDashboard("inicio")}
+            >
+              <span>🏠</span>
+              Inicio
+            </button>
+
+            <button
+              className={vistaDashboard === "perfil" ? "active" : ""}
+              onClick={() => {
+                setVistaDashboard("perfil");
+                cargarPerfil();
+              }}
+            >
+              <span>👤</span>
+              Mi perfil
+            </button>
+
+            {usuarioActual.role === "CLIENTE" && (
+              <button
+                className={vistaDashboard === "tecnicos" ? "active" : ""}
+                onClick={() => {
+                  setVistaDashboard("tecnicos");
+                  cargarTecnicosAprobados();
+                }}
+              >
+                <span>🛠️</span>
+                Técnicos
+              </button>
+            )}
+
+            {usuarioActual.role === "ADMIN" && (
+              <button
+                className={vistaDashboard === "pendientes" ? "active" : ""}
+                onClick={() => {
+                  setVistaDashboard("pendientes");
+                  cargarTecnicosPendientes();
+                }}
+              >
+                <span>✅</span>
+                Aprobaciones
+              </button>
+            )}
+          </nav>
+
+          <div className="sidebar-help">
+            <span>💡</span>
+            <h4>IntiFix Pro</h4>
+            <p>Gestiona servicios técnicos de forma ordenada y segura.</p>
+          </div>
+
+          <div className="sidebar-footer">
+            <button className="logout-side" onClick={cerrarSesion}>
+              Cerrar sesión
+            </button>
+          </div>
+        </aside>
+
+        <main className="main-pro">
+          <header className="topbar-pro">
+            <div>
+              <p className="topbar-label">Centro de servicios</p>
+              <h2>
+                Hola, <span>{usuarioActual.name}</span>
+              </h2>
             </div>
 
-            <div className="dashboard-user">
-              <span>{usuarioActual.role}</span>
-              <button onClick={cerrarSesion}>Cerrar sesión</button>
+            <div className="topbar-actions">
+              <div className="search-topbar">
+                <span>🔍</span>
+                <input type="text" placeholder="Buscar en IntiFix..." />
+              </div>
+
+              <div className="user-chip">
+                <div className="avatar-user">{inicialUsuario}</div>
+
+                <div>
+                  <strong>{usuarioActual.name}</strong>
+                  <small>{usuarioActual.role}</small>
+                </div>
+              </div>
             </div>
           </header>
 
-          {usuarioActual.role === "CLIENTE" && (
-            <section className="dashboard-content">
-              <div className="dashboard-title">
-                <h2>Panel del Cliente</h2>
-                <p>Desde aquí podrás gestionar tus solicitudes de servicio.</p>
+          {vistaDashboard === "inicio" && usuarioActual.role === "CLIENTE" && (
+            <section className="content-pro">
+              <div className="hero-dashboard">
+                <div>
+                  <span className="section-badge">Área del cliente</span>
+                  <h1>Encuentra técnicos confiables cerca de ti</h1>
+                  <p>
+                    Revisa técnicos aprobados por IntiFix según especialidad,
+                    zona de atención y disponibilidad.
+                  </p>
+
+                  <div className="hero-actions">
+                    <button
+                      className="btn-pro primary"
+                      onClick={() => {
+                        setVistaDashboard("tecnicos");
+                        cargarTecnicosAprobados();
+                      }}
+                    >
+                      Buscar técnicos
+                    </button>
+
+                    <button
+                      className="btn-pro secondary"
+                      onClick={() => {
+                        setVistaDashboard("perfil");
+                        cargarPerfil();
+                      }}
+                    >
+                      Ver mi perfil
+                    </button>
+                  </div>
+                </div>
+
+                <div className="hero-card">
+                  <div className="hero-card-icon">🛠️</div>
+                  <h3>Servicio rápido</h3>
+                  <p>Técnicos validados y organizados para atención técnica.</p>
+                </div>
               </div>
 
-              <div className="dashboard-grid">
-                <div className="dashboard-card">
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <span>🧰</span>
+
+                  <div>
+                    <h3>{tecnicosAprobados.length}</h3>
+                    <p>Técnicos aprobados</p>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span>📍</span>
+
+                  <div>
+                    <h3>Lima</h3>
+                    <p>Zona principal</p>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span>🔒</span>
+
+                  <div>
+                    <h3>Seguro</h3>
+                    <p>Cuenta verificada</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="cards-pro-grid">
+                <div className="feature-card">
+                  <div className="feature-icon">🔎</div>
+
                   <h3>Solicitar servicio</h3>
-                  <p>Busca técnicos disponibles según especialidad y ubicación.</p>
-                  <button>Próximamente</button>
+
+                  <p>
+                    Busca técnicos disponibles según especialidad, ubicación y
+                    disponibilidad.
+                  </p>
+
+                  <button
+                    className="btn-pro primary"
+                    onClick={() => {
+                      setVistaDashboard("tecnicos");
+                      cargarTecnicosAprobados();
+                    }}
+                  >
+                    Ver técnicos aprobados
+                  </button>
                 </div>
 
-                <div className="dashboard-card">
+                <div className="feature-card">
+                  <div className="feature-icon">📋</div>
+
                   <h3>Mis actividades</h3>
-                  <p>Revisa el estado de tus solicitudes y servicios.</p>
-                  <button>Próximamente</button>
+
+                  <p>
+                    Próximamente podrás revisar solicitudes, historial y servicios
+                    pendientes.
+                  </p>
+
+                  <button className="btn-pro disabled" type="button">
+                    Próximamente
+                  </button>
                 </div>
               </div>
             </section>
           )}
 
-          {usuarioActual.role === "TECNICO" && (
-            <section className="dashboard-content">
-              <div className="dashboard-title">
-                <h2>Panel del Técnico</h2>
-                <p>Tu cuenta está aprobada. Ya puedes gestionar servicios.</p>
+          {vistaDashboard === "inicio" && usuarioActual.role === "TECNICO" && (
+            <section className="content-pro">
+              <div className="hero-dashboard">
+                <div>
+                  <span className="section-badge">Área técnica</span>
+
+                  <h1>Gestiona tu perfil profesional</h1>
+
+                  <p>
+                    Mantén actualizadas tus especialidades, zona de atención y
+                    disponibilidad para recibir mejores solicitudes.
+                  </p>
+
+                  <div className="hero-actions">
+                    <button
+                      className="btn-pro primary"
+                      onClick={() => {
+                        setVistaDashboard("perfil");
+                        cargarPerfil();
+                      }}
+                    >
+                      Editar perfil técnico
+                    </button>
+                  </div>
+                </div>
+
+                <div className="hero-card">
+                  <div className="hero-card-icon">👨‍🔧</div>
+
+                  <h3>Perfil técnico</h3>
+
+                  <p>Actualiza tu información profesional.</p>
+                </div>
               </div>
 
-              <div className="dashboard-grid">
-                <div className="dashboard-card">
+              <div className="cards-pro-grid">
+                <div className="feature-card">
+                  <div className="feature-icon">🛠️</div>
+
                   <h3>Servicios disponibles</h3>
+
                   <p>Consulta solicitudes relacionadas con tus especialidades.</p>
-                  <button>Próximamente</button>
+
+                  <button className="btn-pro disabled" type="button">
+                    Próximamente
+                  </button>
                 </div>
 
-                <div className="dashboard-card">
+                <div className="feature-card">
+                  <div className="feature-icon">👤</div>
+
                   <h3>Mi perfil técnico</h3>
-                  <p>Actualiza experiencia, disponibilidad y datos profesionales.</p>
-                  <button>Próximamente</button>
+
+                  <p>Actualiza tus datos profesionales dentro de la plataforma.</p>
+
+                  <button
+                    className="btn-pro primary"
+                    onClick={() => {
+                      setVistaDashboard("perfil");
+                      cargarPerfil();
+                    }}
+                  >
+                    Editar perfil
+                  </button>
                 </div>
               </div>
             </section>
           )}
 
-          {usuarioActual.role === "ADMIN" && (
-            <section className="dashboard-content">
-              <div className="dashboard-title">
-                <h2>Panel Administrativo</h2>
-                <p>Aprueba o rechaza solicitudes de técnicos.</p>
+          {vistaDashboard === "inicio" && usuarioActual.role === "ADMIN" && (
+            <section className="content-pro">
+              <div className="hero-dashboard">
+                <div>
+                  <span className="section-badge">Administración</span>
+
+                  <h1>Control de técnicos y usuarios</h1>
+
+                  <p>
+                    Administra solicitudes de técnicos y valida quién puede operar
+                    dentro de IntiFix.
+                  </p>
+
+                  <div className="hero-actions">
+                    <button
+                      className="btn-pro primary"
+                      onClick={() => {
+                        setVistaDashboard("pendientes");
+                        cargarTecnicosPendientes();
+                      }}
+                    >
+                      Revisar aprobaciones
+                    </button>
+                  </div>
+                </div>
+
+                <div className="hero-card">
+                  <div className="hero-card-icon">✅</div>
+
+                  <h3>Validación</h3>
+
+                  <p>Aprueba o rechaza técnicos registrados.</p>
+                </div>
               </div>
 
-              <button className="refresh-btn" onClick={cargarTecnicosPendientes}>
-                Actualizar técnicos pendientes
-              </button>
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <span>⏳</span>
 
-              <div className="admin-list">
+                  <div>
+                    <h3>{tecnicosPendientes.length}</h3>
+                    <p>Pendientes</p>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span>🛡️</span>
+
+                  <div>
+                    <h3>Admin</h3>
+                    <p>Rol activo</p>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span>🔐</span>
+
+                  <div>
+                    <h3>Seguro</h3>
+                    <p>Acceso protegido</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "perfil" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Cuenta</span>
+
+                  <h1>Mi perfil</h1>
+
+                  <p>Gestiona tu información personal dentro de IntiFix.</p>
+                </div>
+              </div>
+
+              <div className="profile-layout">
+                <form className="profile-form" onSubmit={actualizarPerfil}>
+                  <h3>Editar información</h3>
+
+                  <div className="form-row-pro">
+                    <label>Nombre completo</label>
+
+                    <input
+                      type="text"
+                      value={perfilForm.name}
+                      onChange={(e) =>
+                        setPerfilForm({ ...perfilForm, name: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-row-pro">
+                    <label>Teléfono</label>
+
+                    <input
+                      type="text"
+                      value={perfilForm.phone}
+                      onChange={(e) =>
+                        setPerfilForm({
+                          ...perfilForm,
+                          phone: e.target.value.replace(/\D/g, "").slice(0, 9),
+                        })
+                      }
+                    />
+                  </div>
+
+                  {usuarioActual.role === "TECNICO" && (
+                    <>
+                      <div className="form-row-pro">
+                        <label>Especialidades</label>
+
+                        <input
+                          type="text"
+                          value={perfilForm.specialties}
+                          onChange={(e) =>
+                            setPerfilForm({
+                              ...perfilForm,
+                              specialties: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="form-row-pro">
+                        <label>Zona de atención</label>
+
+                        <input
+                          type="text"
+                          value={perfilForm.serviceZone}
+                          onChange={(e) =>
+                            setPerfilForm({
+                              ...perfilForm,
+                              serviceZone: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="form-row-pro">
+                        <label>Disponibilidad</label>
+
+                        <input
+                          type="text"
+                          value={perfilForm.availability}
+                          onChange={(e) =>
+                            setPerfilForm({
+                              ...perfilForm,
+                              availability: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <button
+                    className="btn-pro primary full"
+                    type="submit"
+                    disabled={cargando}
+                  >
+                    {cargando ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                </form>
+
+                <div className="profile-summary">
+                  <div className="profile-avatar-large">{inicialUsuario}</div>
+
+                  <h3>{perfil?.name || usuarioActual.name}</h3>
+
+                  <p>{perfil?.email || usuarioActual.email}</p>
+
+                  <div className="profile-info-list">
+                    <div>
+                      <span>Teléfono</span>
+                      <strong>{perfil?.phone || "No registrado"}</strong>
+                    </div>
+
+                    <div>
+                      <span>Rol</span>
+                      <strong>{perfil?.role || usuarioActual.role}</strong>
+                    </div>
+
+                    {usuarioActual.role === "TECNICO" && (
+                      <>
+                        <div>
+                          <span>Especialidades</span>
+                          <strong>{perfil?.specialties || "No registrado"}</strong>
+                        </div>
+
+                        <div>
+                          <span>Zona</span>
+                          <strong>{perfil?.serviceZone || "No registrado"}</strong>
+                        </div>
+
+                        <div>
+                          <span>Disponibilidad</span>
+                          <strong>{perfil?.availability || "No registrado"}</strong>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <button
+                    className="btn-pro secondary full"
+                    type="button"
+                    onClick={() => cargarPerfil()}
+                  >
+                    Actualizar perfil
+                  </button>
+
+                  <div className="security-note">
+                    <strong>Nota:</strong> La desactivación de cuentas debe
+                    manejarla el administrador para evitar bajas accidentales.
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "tecnicos" && usuarioActual.role === "CLIENTE" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Directorio técnico</span>
+
+                  <h1>Técnicos aprobados</h1>
+
+                  <p>Encuentra técnicos validados según especialidad y zona.</p>
+                </div>
+
+                <button
+                  className="btn-pro primary"
+                  type="button"
+                  onClick={cargarTecnicosAprobados}
+                >
+                  Actualizar
+                </button>
+              </div>
+
+              <div className="search-panel-pro">
+                <label>Buscar técnico</label>
+
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre, zona, especialidad o disponibilidad..."
+                  value={filtroTecnico}
+                  onChange={(e) => setFiltroTecnico(e.target.value)}
+                />
+              </div>
+
+              <div className="technicians-grid-pro">
+                {tecnicosFiltrados.length === 0 && (
+                  <div className="empty-state-pro">
+                    <div>🕓</div>
+
+                    <h3>No hay técnicos aprobados</h3>
+
+                    <p>Cuando el administrador apruebe técnicos, aparecerán aquí.</p>
+                  </div>
+                )}
+
+                {tecnicosFiltrados.map((tecnico) => (
+                  <div className="technician-pro-card" key={tecnico.id}>
+                    <div className="technician-head">
+                      <div className="avatar-tech">
+                        {tecnico.name ? tecnico.name.charAt(0).toUpperCase() : "T"}
+                      </div>
+
+                      <div>
+                        <h3>{tecnico.name}</h3>
+                        <span>Disponible</span>
+                      </div>
+                    </div>
+
+                    <div className="tech-info">
+                      <p>
+                        <strong>Correo:</strong> {tecnico.email}
+                      </p>
+
+                      <p>
+                        <strong>Teléfono:</strong> {tecnico.phone}
+                      </p>
+
+                      <p>
+                        <strong>Especialidades:</strong>{" "}
+                        {tecnico.specialties || "No registrado"}
+                      </p>
+
+                      <p>
+                        <strong>Zona:</strong>{" "}
+                        {tecnico.serviceZone || "No registrado"}
+                      </p>
+
+                      <p>
+                        <strong>Disponibilidad:</strong>{" "}
+                        {tecnico.availability || "No registrado"}
+                      </p>
+                    </div>
+
+                    <button className="btn-pro primary full" type="button">
+                      Ver detalles
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "pendientes" && usuarioActual.role === "ADMIN" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Revisión administrativa</span>
+
+                  <h1>Técnicos pendientes</h1>
+
+                  <p>Aprueba o rechaza solicitudes de técnicos registrados.</p>
+                </div>
+
+                <button
+                  className="btn-pro primary"
+                  type="button"
+                  onClick={cargarTecnicosPendientes}
+                >
+                  Actualizar
+                </button>
+              </div>
+
+              <div className="technicians-grid-pro">
                 {tecnicosPendientes.length === 0 && (
-                  <div className="dashboard-card">
+                  <div className="empty-state-pro">
+                    <div>✅</div>
+
                     <h3>No hay técnicos pendientes</h3>
+
                     <p>Cuando un técnico se registre aparecerá aquí.</p>
                   </div>
                 )}
 
                 {tecnicosPendientes.map((tecnico) => (
-                  <div className="technician-card" key={tecnico.id}>
-                    <div>
-                      <h3>{tecnico.name}</h3>
-                      <p><strong>DNI:</strong> {tecnico.dni}</p>
-                      <p><strong>Correo:</strong> {tecnico.email}</p>
-                      <p><strong>Teléfono:</strong> {tecnico.phone}</p>
-                      <p><strong>Especialidades:</strong> {tecnico.specialties}</p>
-                      <p><strong>Zona:</strong> {tecnico.serviceZone}</p>
-                      <p><strong>Disponibilidad:</strong> {tecnico.availability}</p>
+                  <div className="technician-pro-card" key={tecnico.id}>
+                    <div className="technician-head">
+                      <div className="avatar-tech">
+                        {tecnico.name ? tecnico.name.charAt(0).toUpperCase() : "T"}
+                      </div>
+
+                      <div>
+                        <h3>{tecnico.name}</h3>
+                        <span>Pendiente</span>
+                      </div>
                     </div>
 
-                    <div className="admin-actions">
+                    <div className="tech-info">
+                      <p>
+                        <strong>DNI:</strong> {tecnico.dni}
+                      </p>
+
+                      <p>
+                        <strong>Correo:</strong> {tecnico.email}
+                      </p>
+
+                      <p>
+                        <strong>Teléfono:</strong> {tecnico.phone}
+                      </p>
+
+                      <p>
+                        <strong>Especialidades:</strong> {tecnico.specialties}
+                      </p>
+
+                      <p>
+                        <strong>Zona:</strong> {tecnico.serviceZone}
+                      </p>
+
+                      <p>
+                        <strong>Disponibilidad:</strong> {tecnico.availability}
+                      </p>
+                    </div>
+
+                    <div className="approval-actions">
                       <button
-                        className="approve-btn"
+                        className="btn-pro success"
+                        type="button"
                         onClick={() => aprobarTecnico(tecnico.id)}
                       >
                         Aprobar
                       </button>
 
                       <button
-                        className="reject-btn"
+                        className="btn-pro danger"
+                        type="button"
                         onClick={() => rechazarTecnico(tecnico.id)}
                       >
                         Rechazar
@@ -949,7 +1715,7 @@ function App() {
               {mensaje}
             </div>
           )}
-        </div>
+        </main>
       </div>
     );
   }
@@ -960,6 +1726,7 @@ function App() {
         <main className="auth-panel">
           <div className="brand-mini">
             <div className="brand-badge">IF</div>
+
             <div className="brand-text">
               <h1>IntiFix</h1>
               <p>Plataforma de servicios técnicos</p>
@@ -1033,7 +1800,9 @@ function App() {
                   <div className="role-cards">
                     <button
                       type="button"
-                      className={formData.role === "CLIENTE" ? "role-card selected" : "role-card"}
+                      className={
+                        formData.role === "CLIENTE" ? "role-card selected" : "role-card"
+                      }
                       onClick={() =>
                         setFormData({
                           ...formData,
@@ -1049,17 +1818,23 @@ function App() {
                       }
                     >
                       <div className="role-icon">👤</div>
+
                       <h4>Cliente</h4>
+
                       <p>Quiero solicitar servicios técnicos.</p>
                     </button>
 
                     <button
                       type="button"
-                      className={formData.role === "TECNICO" ? "role-card selected" : "role-card"}
+                      className={
+                        formData.role === "TECNICO" ? "role-card selected" : "role-card"
+                      }
                       onClick={() => setFormData({ ...formData, role: "TECNICO" })}
                     >
                       <div className="role-icon">🛠</div>
+
                       <h4>Técnico</h4>
+
                       <p>Quiero ofrecer mis servicios.</p>
                     </button>
                   </div>
@@ -1076,6 +1851,7 @@ function App() {
                   <div className="form-grid">
                     <div className="grupo full">
                       <label>Nombre completo</label>
+
                       <input
                         type="text"
                         name="name"
@@ -1087,6 +1863,7 @@ function App() {
 
                     <div className="grupo">
                       <label>DNI</label>
+
                       <input
                         type="text"
                         name="dni"
@@ -1095,6 +1872,7 @@ function App() {
                         onChange={manejarCambio}
                         maxLength="8"
                       />
+
                       {dniEstado.texto && (
                         <small className={estadoClass(dniEstado.tipo)}>
                           {dniEstado.tipo === "exito" ? "✓ " : "✕ "}
@@ -1105,6 +1883,7 @@ function App() {
 
                     <div className="grupo">
                       <label>Teléfono</label>
+
                       <input
                         type="text"
                         name="phone"
@@ -1113,6 +1892,7 @@ function App() {
                         onChange={manejarCambio}
                         maxLength="9"
                       />
+
                       {phoneEstado.texto && (
                         <small className={estadoClass(phoneEstado.tipo)}>
                           {phoneEstado.tipo === "exito" ? "✓ " : "✕ "}
@@ -1123,6 +1903,7 @@ function App() {
 
                     <div className="grupo full">
                       <label>Correo electrónico</label>
+
                       <input
                         type="email"
                         name="email"
@@ -1130,6 +1911,7 @@ function App() {
                         value={formData.email}
                         onChange={manejarCambio}
                       />
+
                       {emailEstado.texto && (
                         <small className={estadoClass(emailEstado.tipo)}>
                           {emailEstado.tipo === "exito" ? "✓ " : "✕ "}
@@ -1140,6 +1922,7 @@ function App() {
 
                     <div className="grupo full">
                       <label>Crear contraseña</label>
+
                       <input
                         type="password"
                         name="password"
@@ -1147,6 +1930,7 @@ function App() {
                         value={formData.password}
                         onChange={manejarCambio}
                       />
+
                       <small className={ayudaPasswordClass(formData.password)}>
                         {ayudaPasswordTexto(formData.password)}
                       </small>
@@ -1178,7 +1962,9 @@ function App() {
                       }
                     >
                       <div className="verify-icon">✉</div>
+
                       <h4>Correo electrónico</h4>
+
                       <p>Recibirás el código en {formData.email || "tu correo"}.</p>
                     </button>
 
@@ -1197,7 +1983,9 @@ function App() {
                       }
                     >
                       <div className="verify-icon">📱</div>
+
                       <h4>SMS</h4>
+
                       <p>Modo prueba: el código aparece en la consola.</p>
                     </button>
                   </div>
@@ -1213,15 +2001,14 @@ function App() {
 
                   <div className="wizard-section">
                     <label className="section-label">Especialidades</label>
+
                     <div className="chip-grid">
                       {SPECIALTIES.map((item) => (
                         <button
                           key={item}
                           type="button"
                           className={
-                            formData.specialties.includes(item)
-                              ? "chip selected"
-                              : "chip"
+                            formData.specialties.includes(item) ? "chip selected" : "chip"
                           }
                           onClick={() => toggleArrayItem("specialties", item)}
                         >
@@ -1278,6 +2065,7 @@ function App() {
                       <div className="form-grid province-grid">
                         <div className="grupo">
                           <label>Región</label>
+
                           <input
                             type="text"
                             value="Lima"
@@ -1288,6 +2076,7 @@ function App() {
 
                         <div className="grupo">
                           <label>Provincia</label>
+
                           <input
                             type="text"
                             value="Lima Metropolitana"
@@ -1298,6 +2087,7 @@ function App() {
 
                         <div className="grupo full">
                           <label>Distrito</label>
+
                           <input
                             type="text"
                             name="serviceZone"
@@ -1313,6 +2103,7 @@ function App() {
                       <div className="form-grid province-grid">
                         <div className="grupo">
                           <label>Región</label>
+
                           <input
                             type="text"
                             name="provinceRegion"
@@ -1324,6 +2115,7 @@ function App() {
 
                         <div className="grupo">
                           <label>Provincia</label>
+
                           <input
                             type="text"
                             name="provinceName"
@@ -1335,6 +2127,7 @@ function App() {
 
                         <div className="grupo full">
                           <label>Distrito</label>
+
                           <input
                             type="text"
                             name="provinceDistrict"
@@ -1349,6 +2142,7 @@ function App() {
 
                   <div className="wizard-section">
                     <label className="section-label">Disponibilidad</label>
+
                     <div className="chip-grid">
                       {AVAILABILITY.map((item) => (
                         <button
@@ -1403,11 +2197,13 @@ function App() {
             <form className="formulario" onSubmit={iniciarSesion}>
               <div className="step-title">
                 <h3>Accede a tu cuenta</h3>
+
                 <p>Clientes y técnicos aprobados pueden ingresar.</p>
               </div>
 
               <div className="grupo">
                 <label>Correo electrónico</label>
+
                 <input
                   type="email"
                   name="email"
@@ -1420,6 +2216,7 @@ function App() {
 
               <div className="grupo">
                 <label>Contraseña</label>
+
                 <input
                   type="password"
                   name="password"
@@ -1432,6 +2229,15 @@ function App() {
 
               <button className="boton-principal" type="submit" disabled={cargando}>
                 {cargando ? "Ingresando..." : "Ingresar"}
+              </button>
+
+              <button
+                type="button"
+                className="boton-secundario"
+                onClick={reactivarCuenta}
+                disabled={cargando}
+              >
+                Reactivar cuenta
               </button>
 
               <button
@@ -1450,6 +2256,7 @@ function App() {
                 <form onSubmit={solicitarCodigoRecuperacion}>
                   <div className="step-title">
                     <h3>Solicita tu código</h3>
+
                     <p>
                       Ingresa tu correo registrado. Te enviaremos un código de 6
                       dígitos para cambiar tu contraseña.
@@ -1458,6 +2265,7 @@ function App() {
 
                   <div className="grupo">
                     <label>Correo electrónico</label>
+
                     <input
                       type="email"
                       name="email"
@@ -1478,11 +2286,13 @@ function App() {
                 <form onSubmit={validarCodigoRecuperacion}>
                   <div className="step-title">
                     <h3>Valida el código</h3>
+
                     <p>Revisa tu correo e ingresa el código recibido.</p>
                   </div>
 
                   <div className="grupo">
                     <label>Código de recuperación</label>
+
                     <input
                       className="codigo-input inline-code"
                       type="text"
@@ -1514,11 +2324,13 @@ function App() {
                 <form onSubmit={cambiarPasswordRecuperacion}>
                   <div className="step-title">
                     <h3>Crea una nueva contraseña</h3>
+
                     <p>La nueva contraseña debe tener mínimo 6 caracteres.</p>
                   </div>
 
                   <div className="grupo">
                     <label>Nueva contraseña</label>
+
                     <input
                       type="password"
                       name="newPassword"
@@ -1527,6 +2339,7 @@ function App() {
                       onChange={manejarCambio}
                       required
                     />
+
                     <small className={ayudaPasswordClass(formData.newPassword)}>
                       {ayudaPasswordTexto(formData.newPassword)}
                     </small>
@@ -1534,6 +2347,7 @@ function App() {
 
                   <div className="grupo">
                     <label>Confirmar contraseña</label>
+
                     <input
                       type="password"
                       name="confirmNewPassword"
@@ -1553,7 +2367,9 @@ function App() {
               {recoveryStep === 4 && (
                 <div className="recovery-final">
                   <div className="success-badge">✓</div>
+
                   <h3>Contraseña actualizada</h3>
+
                   <p>Ahora puedes iniciar sesión usando tu nueva contraseña.</p>
 
                   <button
@@ -1599,9 +2415,7 @@ function App() {
 
             <div
               className={
-                segundosRestantes === 0
-                  ? "temporizador vencido"
-                  : "temporizador"
+                segundosRestantes === 0 ? "temporizador vencido" : "temporizador"
               }
             >
               {segundosRestantes === 0
