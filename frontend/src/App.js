@@ -96,6 +96,7 @@ function App() {
     descripcion: "",
     modalidad: "TALLER",
     direccion: "",
+    tecnicoId: null,
   });
 
   const [emailEstado, setEmailEstado] = useState({ texto: "", tipo: "" });
@@ -104,6 +105,20 @@ function App() {
 
   const [modalCodigo, setModalCodigo] = useState(false);
   const [segundosRestantes, setSegundosRestantes] = useState(CODE_SECONDS);
+
+  // ── Chat (nuevo) ────────────────────────────────
+  const [chatMensajes, setChatMensajes] = useState([]);
+  const [chatTexto, setChatTexto] = useState("");
+  const [chatCargando, setChatCargando] = useState(false);
+  const [chatNoLeidos, setChatNoLeidos] = useState({});
+  const chatEndRef = React.useRef(null);
+
+  // ── Foto perfil (nuevo) ──────────────────────────
+  const [fotoArchivo, setFotoArchivo] = useState(null);
+  const [fotoPreview, setFotoPreview] = useState(null);
+  const [fotoSubiendo, setFotoSubiendo] = useState(false);
+
+
 
   const [formData, setFormData] = useState({
     role: "CLIENTE",
@@ -1067,7 +1082,10 @@ function App() {
         );
       }
 
-      setSolicitudes(Array.isArray(data) ? data : []);
+      const lista = Array.isArray(data) ? data : [];
+      setSolicitudes(lista);
+      // Cargar badges de mensajes no leídos para cada solicitud
+      lista.forEach(sol => cargarNoLeidos(sol.id));
     } catch (error) {
       mostrarMensaje("❌ " + error.message, "error");
     }
@@ -1139,6 +1157,7 @@ function App() {
             solicitudForm.modalidad === "DOMICILIO"
               ? solicitudForm.direccion.trim()
               : "",
+          tecnicoId: solicitudForm.tecnicoId || null,
         }),
       });
 
@@ -1161,6 +1180,7 @@ function App() {
         descripcion: "",
         modalidad: "TALLER",
         direccion: "",
+        tecnicoId: null,
       });
 
       setCodigoSeguimiento(data.codigo || "");
@@ -1193,7 +1213,9 @@ function App() {
       setSolicitudSeleccionada(data);
       setEstadoNuevoSolicitud(data.estado || "EN_REVISION");
       setComentarioEstado("");
+      setChatMensajes([]);
       setVistaDashboard("detalleSolicitud");
+      cargarChat(id);
     } catch (error) {
       mostrarMensaje("❌ " + error.message, "error");
     }
@@ -1258,13 +1280,8 @@ function App() {
       }
 
       const respuesta = await fetch(
-        `${SOLICITUDES_URL}/codigo/${codigoSeguimiento.trim().toUpperCase()}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: authHeader,
-          },
-        }
+        `${SOLICITUDES_URL}/seguimiento/${codigoSeguimiento.trim().toUpperCase()}`,
+        { method: "GET" }
       );
 
       const data = await leerRespuesta(respuesta);
@@ -1326,6 +1343,103 @@ function App() {
     } finally {
       setCargando(false);
     }
+  };
+
+
+  // ── Chat functions ───────────────────────────────────────────────
+  const cargarChat = async (solicitudId) => {
+    try {
+      const res = await fetch(`${SOLICITUDES_URL}/${solicitudId}/chat`, {
+        headers: { Authorization: authHeader },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChatMensajes(Array.isArray(data) ? data : []);
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
+        setChatNoLeidos((prev) => ({ ...prev, [solicitudId]: 0 }));
+      }
+    } catch {}
+  };
+
+
+  // Carga el perfil público de un técnico usando el endpoint seguro
+  const cargarPerfilPublicoTecnico = async (tecnicoId) => {
+    try {
+      const res = await fetch(`${PROFILE_URL}/${tecnicoId}/publico`, {
+        headers: { Authorization: authHeader },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTecnicoSeleccionado(data);
+      }
+    } catch {}
+  };
+
+  const cargarNoLeidos = async (solicitudId) => {
+    try {
+      const res = await fetch(`${SOLICITUDES_URL}/${solicitudId}/chat/no-leidos`, {
+        headers: { Authorization: authHeader },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.noLeidos > 0) {
+          setChatNoLeidos((prev) => ({ ...prev, [solicitudId]: data.noLeidos }));
+        }
+      }
+    } catch {}
+  };
+
+  const enviarMensajeChat = async () => {
+    if (!chatTexto.trim() || !solicitudSeleccionada) return;
+    setChatCargando(true);
+    try {
+      const res = await fetch(`${SOLICITUDES_URL}/${solicitudSeleccionada.id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: authHeader },
+        body: JSON.stringify({ contenido: chatTexto.trim() }),
+      });
+      if (res.ok) {
+        setChatTexto("");
+        await cargarChat(solicitudSeleccionada.id);
+      }
+    } catch {}
+    setChatCargando(false);
+  };
+
+  // ── Foto perfil functions ────────────────────────────────────────
+  const handleFotoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFotoArchivo(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setFotoPreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const subirFotoPerfil = async () => {
+    if (!fotoArchivo) return;
+    setFotoSubiendo(true);
+    try {
+      const fd = new FormData();
+      fd.append("foto", fotoArchivo);
+      const res = await fetch(`${PROFILE_URL}/foto`, {
+        method: "POST",
+        headers: { Authorization: authHeader },
+        body: fd,
+      });
+      const resData = await res.json().catch(() => ({}));
+      if (res.ok) {
+        mostrarMensaje("✅ " + (resData.mensaje || "Foto actualizada correctamente."), "exito");
+        setFotoArchivo(null);
+        setFotoPreview(null);
+        await cargarPerfil();
+      } else {
+        mostrarMensaje("❌ " + (resData.message || "No se pudo subir la foto."), "error");
+      }
+    } catch {
+      mostrarMensaje("❌ Error al subir la foto.", "error");
+    }
+    setFotoSubiendo(false);
   };
 
   const reactivarCuenta = async () => {
@@ -1468,8 +1582,10 @@ function App() {
   };
 
   const verDetalleTecnico = (tecnico) => {
-    setTecnicoSeleccionado(tecnico);
+    setTecnicoSeleccionado(tecnico); // datos iniciales del listado
     setVistaDashboard("detalleTecnico");
+    // Reemplaza con datos del endpoint /publico (enmascarado y seguro)
+    cargarPerfilPublicoTecnico(tecnico.id);
   };
 
   const tecnicosFiltrados = tecnicosAprobados.filter((tecnico) => {
@@ -1486,1582 +1602,904 @@ function App() {
   const segundos = segundosRestantes % 60;
   const totalSteps = formData.role === "TECNICO" ? 4 : 3;
 
+
   if (usuarioActual) {
-    const inicialUsuario = usuarioActual.name
-      ? usuarioActual.name.charAt(0).toUpperCase()
-      : "U";
 
-    return (
-      <div className="dashboard-layout">
-        <aside className="sidebar-pro">
-          <div className="sidebar-logo">
-            <div className="logo-icon">IF</div>
+  // ── Logo SVG ─────────────────────────────────────────────────────
+  const LogoSVG = ({ size = 42 }) => (
+    <svg width={size} height={size} viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="42" height="42" rx="12" fill="#1A6BFF"/>
+      <rect x="11" y="11" width="5" height="20" rx="2.5" fill="white"/>
+      <rect x="11" y="11" width="15" height="5" rx="2.5" fill="white"/>
+      <rect x="11" y="19" width="11" height="4" rx="2" fill="white"/>
+      <circle cx="30" cy="30" r="5" fill="#7AB3FF"/>
+      <circle cx="30" cy="30" r="2.5" fill="white"/>
+    </svg>
+  );
 
-            <div>
-              <h1>IntiFix</h1>
-              <p>Servicios técnicos</p>
-            </div>
+  const inicialUsuario = usuarioActual.name ? usuarioActual.name.charAt(0).toUpperCase() : "U";
+
+  // ── Nav SVG icons by key ──────────────────────────────────────────
+  const NAV_ICONS = {
+    inicio:             ["M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z","M9 22V12h6v10"],
+    perfil:             ["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2","M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"],
+    tecnicos:           ["M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"],
+    nuevaSolicitud:     ["M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7","M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"],
+    historial:          ["M9 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9","M17 2v5h5","M9 12h6","M9 16h6"],
+    seguimiento:        ["M21 21l-4.35-4.35","M17 11A6 6 0 1 0 5 11a6 6 0 0 0 12 0z"],
+    solicitudesGestion: ["M9 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9","M17 2v5h5","M9 12h6","M9 16h6"],
+    usuariosAdmin:      ["M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2","M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z","M23 21v-2a4 4 0 0 0-3-3.87","M16 3.13a4 4 0 0 1 0 7.75"],
+    pendientes:         ["M22 11.08V12a10 10 0 1 1-5.93-9.14","M22 4L12 14.01l-3-3"],
+  };
+
+  const NavIcon = ({ name }) => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      {(NAV_ICONS[name] || ["M12 12h.01"]).map((d, i) => <path key={i} d={d}/>)}
+    </svg>
+  );
+
+  const navItems = {
+    CLIENTE: [
+      { key:"inicio",         label:"Inicio" },
+      { key:"perfil",         label:"Mi perfil",       cb: () => cargarPerfil() },
+      { key:"tecnicos",       label:"Técnicos",         cb: () => cargarTecnicosAprobados() },
+      { key:"nuevaSolicitud", label:"Nueva solicitud" },
+      { key:"historial",      label:"Historial",        cb: () => cargarMisSolicitudes() },
+      { key:"seguimiento",    label:"Seguimiento" },
+    ],
+    TECNICO: [
+      { key:"inicio",              label:"Inicio" },
+      { key:"perfil",              label:"Mi perfil",   cb: () => cargarPerfil() },
+      { key:"solicitudesGestion",  label:"Solicitudes", cb: () => cargarSolicitudesGestion() },
+    ],
+    ADMIN: [
+      { key:"inicio",              label:"Inicio" },
+      { key:"perfil",              label:"Mi perfil",     cb: () => cargarPerfil() },
+      { key:"solicitudesGestion",  label:"Solicitudes",   cb: () => cargarSolicitudesGestion() },
+      { key:"usuariosAdmin",       label:"Usuarios",      cb: () => cargarUsuariosAdmin() },
+      { key:"pendientes",          label:"Aprobaciones",  cb: () => cargarTecnicosPendientes() },
+    ],
+  };
+
+  const currentNavItems = navItems[usuarioActual.role] || [];
+
+  return (
+    <div className="dashboard-layout">
+
+      {/* ════════ SIDEBAR ════════ */}
+      <aside className="sidebar-pro">
+        <div className="sidebar-logo">
+          <LogoSVG size={42} />
+          <div>
+            <h1><span style={{color:"#fff"}}>Inti</span><span style={{color:"#7AB3FF"}}>Fix</span></h1>
+            <p>Servicios técnicos</p>
           </div>
+        </div>
 
-          <nav className="sidebar-menu">
-            <button
-              className={vistaDashboard === "inicio" ? "active" : ""}
-              onClick={() => setVistaDashboard("inicio")}
-            >
-              <span>🏠</span>
-              Inicio
+        <nav className="sidebar-menu">
+          {currentNavItems.map(item => (
+            <button key={item.key}
+              className={vistaDashboard === item.key || (item.key === "usuariosAdmin" && vistaDashboard === "detalleUsuarioAdmin") ? "active" : ""}
+              onClick={() => { setVistaDashboard(item.key); if (item.cb) item.cb(); }}>
+              <span className="nav-icon"><NavIcon name={item.key} /></span>
+              {item.label}
             </button>
+          ))}
+        </nav>
 
-            <button
-              className={vistaDashboard === "perfil" ? "active" : ""}
-              onClick={() => {
-                setVistaDashboard("perfil");
-                cargarPerfil();
-              }}
-            >
-              <span>👤</span>
-              Mi perfil
-            </button>
+        <div className="sidebar-help">
+          <h4>IntiFix Pro</h4>
+          <p>Gestiona servicios técnicos de forma ordenada y segura.</p>
+        </div>
 
-            {usuarioActual.role === "CLIENTE" && (
-              <button
-                className={vistaDashboard === "tecnicos" ? "active" : ""}
-                onClick={() => {
-                  setVistaDashboard("tecnicos");
-                  cargarTecnicosAprobados();
-                }}
-              >
-                <span>🛠️</span>
-                Técnicos
-              </button>
-            )}
+        <div className="sidebar-footer">
+          <button className="logout-side" onClick={cerrarSesion}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16,17 21,12 16,7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Cerrar sesión
+          </button>
+        </div>
+      </aside>
 
-            {usuarioActual.role === "CLIENTE" && (
-              <>
-                <button
-                  className={vistaDashboard === "nuevaSolicitud" ? "active" : ""}
-                  onClick={() => setVistaDashboard("nuevaSolicitud")}
-                >
-                  <span>📝</span>
-                  Nueva solicitud
-                </button>
+      {/* ════════ MAIN ════════ */}
+      <main className="main-pro">
 
-                <button
-                  className={vistaDashboard === "historial" ? "active" : ""}
-                  onClick={() => {
-                    setVistaDashboard("historial");
-                    cargarMisSolicitudes();
-                  }}
-                >
-                  <span>📋</span>
-                  Historial
-                </button>
-
-                <button
-                  className={vistaDashboard === "seguimiento" ? "active" : ""}
-                  onClick={() => setVistaDashboard("seguimiento")}
-                >
-                  <span>🔎</span>
-                  Seguimiento
-                </button>
-              </>
-            )}
-
-            {usuarioActual.role === "TECNICO" && (
-              <button
-                className={vistaDashboard === "solicitudesGestion" ? "active" : ""}
-                onClick={() => {
-                  setVistaDashboard("solicitudesGestion");
-                  cargarSolicitudesGestion();
-                }}
-              >
-                <span>📋</span>
-                Solicitudes
-              </button>
-            )}
-
-            {usuarioActual.role === "ADMIN" && (
-              <button
-                className={vistaDashboard === "solicitudesGestion" ? "active" : ""}
-                onClick={() => {
-                  setVistaDashboard("solicitudesGestion");
-                  cargarSolicitudesGestion();
-                }}
-              >
-                <span>📋</span>
-                Solicitudes
-              </button>
-            )}
-
-            {usuarioActual.role === "ADMIN" && (
-              <>
-                <button
-                  className={vistaDashboard === "usuariosAdmin" || vistaDashboard === "detalleUsuarioAdmin" ? "active" : ""}
-                  onClick={() => {
-                    setVistaDashboard("usuariosAdmin");
-                    cargarUsuariosAdmin();
-                  }}
-                >
-                  <span>👥</span>
-                  Usuarios
-                </button>
-
-                <button
-                  className={vistaDashboard === "pendientes" ? "active" : ""}
-                  onClick={() => {
-                    setVistaDashboard("pendientes");
-                    cargarTecnicosPendientes();
-                  }}
-                >
-                  <span>✅</span>
-                  Aprobaciones
-                </button>
-              </>
-            )}
-          </nav>
-
-          <div className="sidebar-help">
-            <span>💡</span>
-            <h4>IntiFix Pro</h4>
-            <p>Gestiona servicios técnicos de forma ordenada y segura.</p>
+        {/* TOPBAR */}
+        <header className="topbar-pro">
+          <div>
+            <p className="topbar-label">Centro de servicios</p>
+            <h2>Hola, <span>{usuarioActual.name}</span></h2>
           </div>
-
-          <div className="sidebar-footer">
-            <button className="logout-side" onClick={cerrarSesion}>
-              Cerrar sesión
+          <div className="topbar-actions user-menu-area">
+            <button className="user-chip user-chip-button" type="button"
+              onClick={() => setMenuUsuarioAbierto(!menuUsuarioAbierto)}>
+              {perfil?.profileImageUrl
+                ? <img className="avatar-img" src={perfil.profileImageUrl} alt="Perfil"/>
+                : <div className="avatar-user">{inicialUsuario}</div>}
+              <div>
+                <strong>{usuarioActual.name}</strong>
+                <small>{usuarioActual.role}</small>
+              </div>
             </button>
+            {menuUsuarioAbierto && (
+              <div className="user-dropdown">
+                <button type="button" onClick={() => { setVistaDashboard("perfil"); setMenuUsuarioAbierto(false); cargarPerfil(); }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  Mi perfil
+                </button>
+                <button type="button" onClick={cerrarSesion}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  Cerrar sesión
+                </button>
+              </div>
+            )}
           </div>
-        </aside>
+        </header>
 
-        <main className="main-pro">
-          <header className="topbar-pro">
-            <div>
-              <p className="topbar-label">Centro de servicios</p>
-              <h2>
-                Hola, <span>{usuarioActual.name}</span>
-              </h2>
+        {/* ══ INICIO CLIENTE ══ */}
+        {vistaDashboard === "inicio" && usuarioActual.role === "CLIENTE" && (
+          <section className="content-pro">
+            <div className="hero-dashboard">
+              <div style={{position:"relative",zIndex:1}}>
+                <span className="section-badge">Área del cliente</span>
+                <h1>Tu equipo en buenas<br/>manos, siempre.</h1>
+                <p>Técnicos verificados por IntiFix listos para atenderte en Lima y provincias. Rápido, seguro y con seguimiento en tiempo real.</p>
+                <div className="hero-actions">
+                  <button className="btn-pro primary" onClick={() => { setVistaDashboard("tecnicos"); cargarTecnicosAprobados(); }}>Ver técnicos disponibles</button>
+                  <button className="btn-pro secondary" onClick={() => setVistaDashboard("nuevaSolicitud")}>Registrar solicitud</button>
+                </div>
+              </div>
+              <div className="hero-card">
+                <div className="hero-card-icon">
+                  <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#7AB3FF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </div>
+                <h3>Servicio rápido</h3>
+                <p>Técnicos validados disponibles ahora</p>
+              </div>
             </div>
 
-            <div className="topbar-actions user-menu-area">
-              <button
-                className="user-chip user-chip-button"
-                type="button"
-                onClick={() => setMenuUsuarioAbierto(!menuUsuarioAbierto)}
-              >
-                {perfil?.profileImageUrl ? (
-                  <img className="avatar-img" src={perfil.profileImageUrl} alt="Perfil" />
-                ) : (
-                  <div className="avatar-user">{inicialUsuario}</div>
-                )}
-
-                <div>
-                  <strong>{usuarioActual.name}</strong>
-                  <small>{usuarioActual.role}</small>
-                </div>
-              </button>
-
-              {menuUsuarioAbierto && (
-                <div className="user-dropdown">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setVistaDashboard("perfil");
-                      setMenuUsuarioAbierto(false);
-                      cargarPerfil();
-                    }}
-                  >
-                    👤 Mi perfil
-                  </button>
-                  <button type="button" onClick={cerrarSesion}>
-                    🚪 Cerrar sesión
-                  </button>
-                </div>
-              )}
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon-wrap" style={{background:"#EEF4FF"}}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A6BFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+                <div><h3>{tecnicosAprobados.length}</h3><p>Técnicos activos</p></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon-wrap" style={{background:"#F0FDF9"}}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00B87A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg></div>
+                <div><h3>{solicitudes.length}</h3><p>Mis solicitudes</p></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon-wrap" style={{background:"#FFF8EB"}}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26 12,2"/></svg></div>
+                <div><h3>4.9</h3><p>Calificación media</p></div>
+              </div>
             </div>
-          </header>
 
-          {vistaDashboard === "inicio" && usuarioActual.role === "CLIENTE" && (
-            <section className="content-pro">
-              <div className="hero-dashboard">
-                <div>
-                  <span className="section-badge">Área del cliente</span>
-                  <h1>Encuentra técnicos confiables cerca de ti</h1>
-                  <p>
-                    Revisa técnicos aprobados por IntiFix según especialidad,
-                    zona de atención y disponibilidad.
-                  </p>
+            <div className="cards-pro-grid">
+              <div className="feature-card">
+                <div className="feature-icon-wrap" style={{background:"#EEF4FF"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A6BFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
+                <h3>Registrar reparación</h3>
+                <p>Describe la falla, elige el tipo de atención y recibe un código único para rastrear tu servicio.</p>
+                <button className="btn-pro primary" onClick={() => setVistaDashboard("nuevaSolicitud")}>Nueva solicitud</button>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon-wrap" style={{background:"#F0FDF9"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00B87A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg></div>
+                <h3>Mis solicitudes</h3>
+                <p>Revisa el historial de tus reparaciones, adjunta evidencias y sigue el estado de cada servicio.</p>
+                <button className="btn-pro secondary" onClick={() => { setVistaDashboard("historial"); cargarMisSolicitudes(); }}>Ver historial</button>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon-wrap" style={{background:"#F5F0FF"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+                <h3>Seguimiento</h3>
+                <p>Consulta el estado de tu reparación con el código único. Ve en qué fase está tu solicitud.</p>
+                <button className="btn-pro secondary" onClick={() => setVistaDashboard("seguimiento")}>Consultar estado</button>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon-wrap" style={{background:"#FFF4F4"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E53E3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                <h3>Técnicos disponibles</h3>
+                <p>Explora el directorio de técnicos verificados por IntiFix. Filtra por especialidad y zona.</p>
+                <button className="btn-pro secondary" onClick={() => { setVistaDashboard("tecnicos"); cargarTecnicosAprobados(); }}>Ver directorio</button>
+              </div>
+            </div>
 
-                  <div className="hero-actions">
-                    <button
-                      className="btn-pro primary"
-                      onClick={() => {
-                        setVistaDashboard("tecnicos");
-                        cargarTecnicosAprobados();
-                      }}
-                    >
-                      Buscar técnicos
-                    </button>
-
-                    <button
-                      className="btn-pro secondary"
-                      onClick={() => setVistaDashboard("nuevaSolicitud")}
-                    >
-                      Registrar solicitud
-                    </button>
-                  </div>
+            <div className="how-it-works">
+              <h2>¿Cómo funciona IntiFix?</h2>
+              <div className="steps-grid">
+                <div className="step-item">
+                  <div className="step-num">1</div>
+                  <div className="step-content-block"><h4>Registra tu solicitud</h4><p>Describe el equipo y el problema. Elige taller o atención a domicilio.</p></div>
                 </div>
-
-                <div className="hero-card">
-                  <div className="hero-card-icon">🛠️</div>
-                  <h3>Servicio rápido</h3>
-                  <p>Técnicos validados y organizados para atención técnica.</p>
+                <div className="step-divider"/>
+                <div className="step-item">
+                  <div className="step-num">2</div>
+                  <div className="step-content-block"><h4>Un técnico lo revisa</h4><p>IntiFix asigna un técnico calificado según tu tipo de equipo y ubicación.</p></div>
+                </div>
+                <div className="step-divider"/>
+                <div className="step-item">
+                  <div className="step-num">3</div>
+                  <div className="step-content-block"><h4>Sigue el avance</h4><p>Usa tu código único para ver en qué fase está y chatea con el técnico.</p></div>
                 </div>
               </div>
+            </div>
+          </section>
+        )}
 
-              <div className="stats-grid">
-                <div className="stat-card">
-                  <span>🧰</span>
-
-                  <div>
-                    <h3>{tecnicosAprobados.length}</h3>
-                    <p>Técnicos aprobados</p>
-                  </div>
-                </div>
-
-                <div className="stat-card">
-                  <span>📍</span>
-
-                  <div>
-                    <h3>Lima</h3>
-                    <p>Zona principal</p>
-                  </div>
-                </div>
-
-                <div className="stat-card">
-                  <span>🔒</span>
-
-                  <div>
-                    <h3>Seguro</h3>
-                    <p>Cuenta verificada</p>
-                  </div>
+        {/* ══ INICIO TÉCNICO ══ */}
+        {vistaDashboard === "inicio" && usuarioActual.role === "TECNICO" && (
+          <section className="content-pro">
+            <div className="hero-dashboard">
+              <div style={{position:"relative",zIndex:1}}>
+                <span className="section-badge">Área técnica</span>
+                <h1>Gestiona tus servicios<br/>de reparación</h1>
+                <p>Revisa las solicitudes asignadas, actualiza estados y comunícate con clientes desde la plataforma.</p>
+                <div className="hero-actions">
+                  <button className="btn-pro primary" onClick={() => { setVistaDashboard("solicitudesGestion"); cargarSolicitudesGestion(); }}>Ver solicitudes</button>
+                  <button className="btn-pro secondary" onClick={() => { setVistaDashboard("perfil"); cargarPerfil(); }}>Editar mi perfil</button>
                 </div>
               </div>
+              <div className="hero-card">
+                <div className="hero-card-icon"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#7AB3FF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                <h3>Perfil técnico</h3>
+                <p>Mantén tu información actualizada</p>
+              </div>
+            </div>
+            <div className="cards-pro-grid">
+              <div className="feature-card">
+                <div className="feature-icon-wrap" style={{background:"#EEF4FF"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A6BFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/></svg></div>
+                <h3>Solicitudes asignadas</h3>
+                <p>Gestiona las reparaciones de tus clientes y actualiza el estado de cada servicio.</p>
+                <button className="btn-pro primary" onClick={() => { setVistaDashboard("solicitudesGestion"); cargarSolicitudesGestion(); }}>Gestionar</button>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon-wrap" style={{background:"#F0FDF9"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00B87A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                <h3>Mi perfil técnico</h3>
+                <p>Actualiza tus especialidades, zona de atención y disponibilidad.</p>
+                <button className="btn-pro secondary" onClick={() => { setVistaDashboard("perfil"); cargarPerfil(); }}>Editar perfil</button>
+              </div>
+            </div>
+          </section>
+        )}
 
-              <div className="cards-pro-grid">
-                <div className="feature-card">
-                  <div className="feature-icon">🔎</div>
-
-                  <h3>Registrar reparación</h3>
-
-                  <p>
-                    Reporta una falla, elige modalidad de atención y genera un
-                    código único para hacer seguimiento.
-                  </p>
-
-                  <button
-                    className="btn-pro primary"
-                    onClick={() => setVistaDashboard("nuevaSolicitud")}
-                  >
-                    Nueva solicitud
-                  </button>
-                </div>
-
-                <div className="feature-card">
-                  <div className="feature-icon">📋</div>
-
-                  <h3>Mis solicitudes</h3>
-
-                  <p>
-                    Revisa tu historial de servicios, evidencias adjuntas y el
-                    estado actual de cada reparación.
-                  </p>
-
-                  <button
-                    className="btn-pro secondary"
-                    type="button"
-                    onClick={() => {
-                      setVistaDashboard("historial");
-                      cargarMisSolicitudes();
-                    }}
-                  >
-                    Ver historial
-                  </button>
+        {/* ══ INICIO ADMIN ══ */}
+        {vistaDashboard === "inicio" && usuarioActual.role === "ADMIN" && (
+          <section className="content-pro">
+            <div className="hero-dashboard">
+              <div style={{position:"relative",zIndex:1}}>
+                <span className="section-badge">Administración</span>
+                <h1>Panel de control<br/>IntiFix</h1>
+                <p>Administra técnicos, clientes y solicitudes. Aprueba registros y mantén la plataforma en orden.</p>
+                <div className="hero-actions">
+                  <button className="btn-pro primary" onClick={() => { setVistaDashboard("pendientes"); cargarTecnicosPendientes(); }}>Revisar aprobaciones</button>
+                  <button className="btn-pro secondary" onClick={() => { setVistaDashboard("solicitudesGestion"); cargarSolicitudesGestion(); }}>Gestionar solicitudes</button>
                 </div>
               </div>
-            </section>
-          )}
-
-          {vistaDashboard === "inicio" && usuarioActual.role === "TECNICO" && (
-            <section className="content-pro">
-              <div className="hero-dashboard">
-                <div>
-                  <span className="section-badge">Área técnica</span>
-
-                  <h1>Gestiona tu perfil profesional</h1>
-
-                  <p>
-                    Mantén actualizadas tus especialidades, zona de atención y
-                    disponibilidad para recibir mejores solicitudes.
-                  </p>
-
-                  <div className="hero-actions">
-                    <button
-                      className="btn-pro primary"
-                      onClick={() => {
-                        setVistaDashboard("perfil");
-                        cargarPerfil();
-                      }}
-                    >
-                      Editar perfil técnico
-                    </button>
-                  </div>
-                </div>
-
-                <div className="hero-card">
-                  <div className="hero-card-icon">👨‍🔧</div>
-
-                  <h3>Perfil técnico</h3>
-
-                  <p>Actualiza tu información profesional.</p>
-                </div>
+              <div className="hero-card">
+                <div className="hero-card-icon"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#7AB3FF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                <h3>Administrador</h3>
+                <p>Control total de la plataforma</p>
               </div>
-
-              <div className="cards-pro-grid">
-                <div className="feature-card">
-                  <div className="feature-icon">🛠️</div>
-
-                  <h3>Servicios disponibles</h3>
-
-                  <p>Consulta solicitudes registradas y actualiza sus estados.</p>
-
-                  <button
-                    className="btn-pro primary"
-                    type="button"
-                    onClick={() => {
-                      setVistaDashboard("solicitudesGestion");
-                      cargarSolicitudesGestion();
-                    }}
-                  >
-                    Ver solicitudes
-                  </button>
-                </div>
-
-                <div className="feature-card">
-                  <div className="feature-icon">👤</div>
-
-                  <h3>Mi perfil técnico</h3>
-
-                  <p>Actualiza tus datos profesionales dentro de la plataforma.</p>
-
-                  <button
-                    className="btn-pro primary"
-                    onClick={() => {
-                      setVistaDashboard("perfil");
-                      cargarPerfil();
-                    }}
-                  >
-                    Editar perfil
-                  </button>
-                </div>
+            </div>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon-wrap" style={{background:"#FFF8EB"}}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+                <div><h3>{tecnicosPendientes.length}</h3><p>Pendientes de aprobación</p></div>
               </div>
-            </section>
-          )}
-
-          {vistaDashboard === "inicio" && usuarioActual.role === "ADMIN" && (
-            <section className="content-pro">
-              <div className="hero-dashboard">
-                <div>
-                  <span className="section-badge">Administración</span>
-
-                  <h1>Control de técnicos y usuarios</h1>
-
-                  <p>
-                    Administra solicitudes de técnicos y valida quién puede operar
-                    dentro de IntiFix.
-                  </p>
-
-                  <div className="hero-actions">
-                    <button
-                      className="btn-pro primary"
-                      onClick={() => {
-                        setVistaDashboard("pendientes");
-                        cargarTecnicosPendientes();
-                      }}
-                    >
-                      Revisar aprobaciones
-                    </button>
-
-                    <button
-                      className="btn-pro secondary"
-                      onClick={() => {
-                        setVistaDashboard("solicitudesGestion");
-                        cargarSolicitudesGestion();
-                      }}
-                    >
-                      Gestionar solicitudes
-                    </button>
-                  </div>
-                </div>
-
-                <div className="hero-card">
-                  <div className="hero-card-icon">✅</div>
-
-                  <h3>Validación</h3>
-
-                  <p>Aprueba o rechaza técnicos registrados.</p>
-                </div>
+              <div className="stat-card">
+                <div className="stat-icon-wrap" style={{background:"#EEF4FF"}}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A6BFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+                <div><h3>Admin</h3><p>Rol activo</p></div>
               </div>
-
-              <div className="stats-grid">
-                <div className="stat-card">
-                  <span>⏳</span>
-
-                  <div>
-                    <h3>{tecnicosPendientes.length}</h3>
-                    <p>Pendientes</p>
-                  </div>
-                </div>
-
-                <div className="stat-card">
-                  <span>🛡️</span>
-
-                  <div>
-                    <h3>Admin</h3>
-                    <p>Rol activo</p>
-                  </div>
-                </div>
-
-                <div className="stat-card">
-                  <span>🔐</span>
-
-                  <div>
-                    <h3>Seguro</h3>
-                    <p>Acceso protegido</p>
-                  </div>
-                </div>
+              <div className="stat-card">
+                <div className="stat-icon-wrap" style={{background:"#F0FDF9"}}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00B87A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                <div><h3>Seguro</h3><p>Acceso protegido</p></div>
               </div>
-            </section>
-          )}
+            </div>
+          </section>
+        )}
 
-          {vistaDashboard === "perfil" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Cuenta</span>
-                  <h1>Mi perfil</h1>
-                  <p>Actualiza tu información personal, correo, dirección e imagen.</p>
+        {/* ══ PERFIL ══ */}
+        {vistaDashboard === "perfil" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Cuenta</span><h1>Mi perfil</h1><p>Actualiza tu información y foto de perfil.</p></div>
+            </div>
+            <div className="profile-layout">
+              <form className="profile-form" onSubmit={actualizarPerfil}>
+                <h3>Editar información</h3>
+                <div className="form-row-pro"><label>Nombre completo</label>
+                  <input type="text" value={perfilForm.name} onChange={(e) => setPerfilForm({...perfilForm, name: e.target.value})}/>
                 </div>
-              </div>
-
-              <div className="profile-layout">
-                <form className="profile-form" onSubmit={actualizarPerfil}>
-                  <h3>Editar información</h3>
-
-                  <div className="form-row-pro">
-                    <label>Nombre completo</label>
-                    <input
-                      type="text"
-                      value={perfilForm.name}
-                      onChange={(e) => setPerfilForm({ ...perfilForm, name: e.target.value })}
-                    />
+                <div className="form-row-pro"><label>Correo electrónico</label>
+                  <input type="email" value={perfilForm.email} onChange={(e) => setPerfilForm({...perfilForm, email: e.target.value.trim().toLowerCase()})}/>
+                </div>
+                <div className="form-row-pro"><label>Teléfono</label>
+                  <input type="text" value={perfilForm.phone} onChange={(e) => setPerfilForm({...perfilForm, phone: e.target.value.replace(/\D/g,"").slice(0,9)})}/>
+                </div>
+                <div className="form-row-pro"><label>Dirección</label>
+                  <input type="text" placeholder="Av. Los Olivos 123, Lima" value={perfilForm.address} onChange={(e) => setPerfilForm({...perfilForm, address: e.target.value})}/>
+                </div>
+                {usuarioActual.role === "TECNICO" && (<>
+                  <div className="form-row-pro"><label>Especialidades</label>
+                    <input type="text" value={perfilForm.specialties} onChange={(e) => setPerfilForm({...perfilForm, specialties: e.target.value})}/>
                   </div>
-
-                  <div className="form-row-pro">
-                    <label>Correo electrónico</label>
-                    <input
-                      type="email"
-                      value={perfilForm.email}
-                      onChange={(e) =>
-                        setPerfilForm({ ...perfilForm, email: e.target.value.trim().toLowerCase() })
-                      }
-                    />
+                  <div className="form-row-pro"><label>Zona de atención</label>
+                    <input type="text" value={perfilForm.serviceZone} onChange={(e) => setPerfilForm({...perfilForm, serviceZone: e.target.value})}/>
                   </div>
-
-                  <div className="form-row-pro">
-                    <label>Teléfono</label>
-                    <input
-                      type="text"
-                      value={perfilForm.phone}
-                      onChange={(e) =>
-                        setPerfilForm({
-                          ...perfilForm,
-                          phone: e.target.value.replace(/\D/g, "").slice(0, 9),
-                        })
-                      }
-                    />
+                  <div className="form-row-pro"><label>Disponibilidad</label>
+                    <input type="text" value={perfilForm.availability} onChange={(e) => setPerfilForm({...perfilForm, availability: e.target.value})}/>
                   </div>
+                </>)}
+                <button className="btn-pro primary full" type="submit" disabled={cargando}>{cargando ? "Guardando..." : "Guardar cambios"}</button>
+              </form>
 
-                  <div className="form-row-pro">
-                    <label>Dirección</label>
-                    <input
-                      type="text"
-                      placeholder="Ejemplo: Av. Los Olivos 123, Lima"
-                      value={perfilForm.address}
-                      onChange={(e) => setPerfilForm({ ...perfilForm, address: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-row-pro">
-                    <label>Imagen de perfil URL</label>
-                    <input
-                      type="url"
-                      placeholder="https://.../foto.png"
-                      value={perfilForm.profileImageUrl}
-                      onChange={(e) =>
-                        setPerfilForm({ ...perfilForm, profileImageUrl: e.target.value })
-                      }
-                    />
-                    <small className="ayuda-campo info-texto">
-                      Pega una URL de imagen. Luego se verá en tu perfil y avatar superior.
-                    </small>
-                  </div>
-
-                  {usuarioActual.role === "TECNICO" && (
-                    <>
-                      <div className="form-row-pro">
-                        <label>Especialidades</label>
-                        <input
-                          type="text"
-                          value={perfilForm.specialties}
-                          onChange={(e) =>
-                            setPerfilForm({ ...perfilForm, specialties: e.target.value })
-                          }
-                        />
-                      </div>
-
-                      <div className="form-row-pro">
-                        <label>Zona de atención</label>
-                        <input
-                          type="text"
-                          value={perfilForm.serviceZone}
-                          onChange={(e) =>
-                            setPerfilForm({ ...perfilForm, serviceZone: e.target.value })
-                          }
-                        />
-                      </div>
-
-                      <div className="form-row-pro">
-                        <label>Disponibilidad</label>
-                        <input
-                          type="text"
-                          value={perfilForm.availability}
-                          onChange={(e) =>
-                            setPerfilForm({ ...perfilForm, availability: e.target.value })
-                          }
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  <button className="btn-pro primary full" type="submit" disabled={cargando}>
-                    {cargando ? "Guardando..." : "Guardar cambios"}
-                  </button>
-                </form>
-
-                <div className="profile-summary">
-                  {perfil?.profileImageUrl ? (
-                    <img className="profile-photo-large" src={perfil.profileImageUrl} alt="Perfil" />
-                  ) : (
-                    <div className="profile-avatar-large">{inicialUsuario}</div>
-                  )}
-
-                  <h3>{perfil?.name || usuarioActual.name}</h3>
-                  <p>{perfil?.email || usuarioActual.email}</p>
-
-                  <div className="profile-info-list">
-                    <div>
-                      <span>Teléfono</span>
-                      <strong>{perfil?.phone || "No registrado"}</strong>
-                    </div>
-                    <div>
-                      <span>Dirección</span>
-                      <strong>{perfil?.address || "No registrado"}</strong>
-                    </div>
-                    <div>
-                      <span>Rol</span>
-                      <strong>{perfil?.role || usuarioActual.role}</strong>
-                    </div>
-                    <div>
-                      <span>Estado</span>
-                      <strong>{perfil?.accountStatus || "APROBADO"}</strong>
-                    </div>
-
-                    {usuarioActual.role === "TECNICO" && (
-                      <>
-                        <div>
-                          <span>Especialidades</span>
-                          <strong>{perfil?.specialties || "No registrado"}</strong>
-                        </div>
-                        <div>
-                          <span>Zona</span>
-                          <strong>{perfil?.serviceZone || "No registrado"}</strong>
-                        </div>
-                        <div>
-                          <span>Disponibilidad</span>
-                          <strong>{perfil?.availability || "No registrado"}</strong>
-                        </div>
-                      </>
+              <div className="profile-summary">
+                <div className="foto-upload-area">
+                  {fotoPreview
+                    ? <img className="profile-avatar-large" src={fotoPreview} alt="Preview" style={{objectFit:"cover"}}/>
+                    : perfil?.profileImageUrl
+                      ? <img className="profile-photo-large" src={perfil.profileImageUrl} alt="Perfil"/>
+                      : <div className="profile-avatar-large">{inicialUsuario}</div>}
+                  <div className="foto-upload-btns">
+                    <label className="btn-upload-label">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      Elegir foto
+                      <input type="file" accept="image/*" onChange={handleFotoChange} style={{display:"none"}}/>
+                    </label>
+                    {fotoArchivo && (
+                      <button type="button" className="btn-pro primary" onClick={subirFotoPerfil} disabled={fotoSubiendo} style={{padding:"8px 14px",fontSize:12}}>
+                        {fotoSubiendo ? "Subiendo..." : "Guardar foto"}
+                      </button>
                     )}
                   </div>
-
-                  <button className="btn-pro secondary full" type="button" onClick={() => cargarPerfil()}>
-                    Actualizar perfil
-                  </button>
-
-                  {usuarioActual.role !== "ADMIN" && (
-                    <button
-                      className="btn-pro danger full danger-margin"
-                      type="button"
-                      onClick={eliminarMiCuenta}
-                      disabled={cargando}
-                    >
-                      Eliminar / desactivar mi cuenta
-                    </button>
-                  )}
-
-                  {usuarioActual.role === "ADMIN" && (
-                    <div className="security-note">
-                      <strong>Administrador:</strong> Puedes gestionar clientes y técnicos desde el módulo Usuarios.
-                    </div>
-                  )}
+                  {fotoArchivo && <p style={{fontSize:11,color:"var(--text3)",textAlign:"center"}}>{fotoArchivo.name}</p>}
                 </div>
-              </div>
-            </section>
-          )}
-
-          {vistaDashboard === "tecnicos" && usuarioActual.role === "CLIENTE" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Directorio técnico</span>
-
-                  <h1>Técnicos aprobados</h1>
-
-                  <p>Encuentra técnicos validados según especialidad y zona.</p>
+                <h3>{perfil?.name || usuarioActual.name}</h3>
+                <p>{perfil?.email || usuarioActual.email}</p>
+                <div className="profile-info-list">
+                  <div><span>Teléfono</span><strong>{perfil?.phone || "—"}</strong></div>
+                  <div><span>Dirección</span><strong>{perfil?.address || "—"}</strong></div>
+                  <div><span>Rol</span><strong>{perfil?.role || usuarioActual.role}</strong></div>
+                  <div><span>Estado</span><strong>{perfil?.accountStatus || "APROBADO"}</strong></div>
+                  {usuarioActual.role === "TECNICO" && (<>
+                    <div><span>Especialidades</span><strong>{perfil?.specialties || "—"}</strong></div>
+                    <div><span>Zona</span><strong>{perfil?.serviceZone || "—"}</strong></div>
+                    <div><span>Disponibilidad</span><strong>{perfil?.availability || "—"}</strong></div>
+                  </>)}
                 </div>
-
-                <button
-                  className="btn-pro primary"
-                  type="button"
-                  onClick={cargarTecnicosAprobados}
-                >
-                  Actualizar
-                </button>
-              </div>
-
-              <div className="search-panel-pro">
-                <label>Buscar técnico</label>
-
-                <input
-                  type="text"
-                  placeholder="Buscar por nombre, zona, especialidad o disponibilidad..."
-                  value={filtroTecnico}
-                  onChange={(e) => setFiltroTecnico(e.target.value)}
-                />
-              </div>
-
-              <div className="technicians-grid-pro">
-                {tecnicosFiltrados.length === 0 && (
-                  <div className="empty-state-pro">
-                    <div>🕓</div>
-
-                    <h3>No hay técnicos aprobados</h3>
-
-                    <p>Cuando el administrador apruebe técnicos, aparecerán aquí.</p>
-                  </div>
+                <button className="btn-pro secondary full" type="button" onClick={() => cargarPerfil()}>Actualizar datos</button>
+                {usuarioActual.role !== "ADMIN" && (
+                  <button className="btn-pro danger full danger-margin" type="button" onClick={eliminarMiCuenta} disabled={cargando}>Desactivar mi cuenta</button>
                 )}
+              </div>
+            </div>
+          </section>
+        )}
 
-                {tecnicosFiltrados.map((tecnico) => (
-                  <div className="technician-pro-card" key={tecnico.id}>
-                    <div className="technician-head">
-                      <div className="avatar-tech">
-                        {tecnico.name ? tecnico.name.charAt(0).toUpperCase() : "T"}
-                      </div>
-
-                      <div>
-                        <h3>{tecnico.name}</h3>
-                        <span>Disponible</span>
-                      </div>
+        {/* ══ TÉCNICOS ══ */}
+        {vistaDashboard === "tecnicos" && usuarioActual.role === "CLIENTE" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Directorio técnico</span><h1>Técnicos disponibles</h1><p>Técnicos verificados por IntiFix.</p></div>
+              <button className="btn-pro primary" type="button" onClick={cargarTecnicosAprobados}>Actualizar</button>
+            </div>
+            <div className="search-panel-pro">
+              <label>Buscar técnico</label>
+              <input type="text" placeholder="Nombre, zona, especialidad..." value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}/>
+            </div>
+            <div className="technicians-grid-pro">
+              {tecnicosFiltrados.length === 0 && <div className="empty-state-pro"><div>👷</div><h3>Sin técnicos disponibles</h3><p>Cuando el admin apruebe técnicos aparecerán aquí.</p></div>}
+              {tecnicosFiltrados.map((tecnico) => (
+                <div className="technician-pro-card" key={tecnico.id}>
+                  <div className="technician-head">
+                    <div className="avatar-tech">
+                      {tecnico.profileImageUrl
+                        ? <img src={tecnico.profileImageUrl} alt={tecnico.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:"14px"}}/>
+                        : tecnico.name?.charAt(0).toUpperCase()}
                     </div>
-
-                    <div className="tech-info">
-                      <p>
-                        <strong>Correo:</strong> {tecnico.email}
-                      </p>
-
-                      <p>
-                        <strong>Teléfono:</strong> {tecnico.phone}
-                      </p>
-
-                      <p>
-                        <strong>Especialidades:</strong>{" "}
-                        {tecnico.specialties || "No registrado"}
-                      </p>
-
-                      <p>
-                        <strong>Zona:</strong>{" "}
-                        {tecnico.serviceZone || "No registrado"}
-                      </p>
-
-                      <p>
-                        <strong>Disponibilidad:</strong>{" "}
-                        {tecnico.availability || "No registrado"}
-                      </p>
-                    </div>
-
-                    <button
-                      className="btn-pro primary full"
-                      type="button"
-                      onClick={() => verDetalleTecnico(tecnico)}
-                    >
-                      Ver detalles
-                    </button>
+                    <div><h3>{tecnico.name}</h3><span>Disponible</span></div>
                   </div>
+                  <div className="tech-info">
+                    <p><strong>Especialidades:</strong> {tecnico.specialties || "—"}</p>
+                    <p><strong>Zona:</strong> {tecnico.serviceZone || "—"}</p>
+                    <p><strong>Disponibilidad:</strong> {tecnico.availability || "—"}</p>
+                  </div>
+                  <button className="btn-pro primary full" type="button" onClick={() => verDetalleTecnico(tecnico)}>Ver detalles</button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ══ DETALLE TÉCNICO ══ */}
+        {vistaDashboard === "detalleTecnico" && tecnicoSeleccionado && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Perfil técnico</span><h1>{tecnicoSeleccionado.name}</h1><p>Información profesional del técnico.</p></div>
+              <button className="btn-pro secondary" type="button" onClick={() => setVistaDashboard("tecnicos")}>Volver</button>
+            </div>
+            <div className="profile-layout">
+              <div className="profile-summary tecnico-detail-card">
+                {tecnicoSeleccionado.profileImageUrl
+                  ? <img className="profile-photo-large" src={tecnicoSeleccionado.profileImageUrl} alt="Técnico"/>
+                  : <div className="profile-avatar-large">{tecnicoSeleccionado.name?.charAt(0).toUpperCase()}</div>}
+                <h3>{tecnicoSeleccionado.name}</h3>
+                <div className="profile-info-list">
+                  <div><span>Especialidades</span><strong>{tecnicoSeleccionado.specialties || "—"}</strong></div>
+                  <div><span>Zona</span><strong>{tecnicoSeleccionado.serviceZone || "—"}</strong></div>
+                  <div><span>Disponibilidad</span><strong>{tecnicoSeleccionado.availability || "—"}</strong></div>
+                </div>
+              </div>
+              <div className="profile-form">
+                <h3>Solicitar atención con este técnico</h3>
+                <p className="info-texto" style={{marginBottom:12}}>Al crear la solicitud con este técnico, el backend validará que su especialidad sea compatible con el equipo que reportes.</p>
+                <button className="btn-pro primary full" type="button" onClick={() => {
+                  setSolicitudForm({...solicitudForm, titulo: `Servicio con ${tecnicoSeleccionado.name}`, tecnicoId: tecnicoSeleccionado.id});
+                  setVistaDashboard("nuevaSolicitud");
+                }}>Crear solicitud para este técnico</button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ══ NUEVA SOLICITUD ══ */}
+        {vistaDashboard === "nuevaSolicitud" && usuarioActual.role === "CLIENTE" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Solicitud</span><h1>Registrar reparación</h1><p>Completa los datos del equipo y describe la falla.</p></div>
+            </div>
+            <form className="profile-form solicitud-form-pro" onSubmit={registrarSolicitud}>
+              <div className="request-type-grid">
+                {[{t:"Laptop",i:"💻"},{t:"Celular",i:"📱"},{t:"Impresora",i:"🖨️"},{t:"PC",i:"🖥️"},{t:"Tablet",i:"📲"},{t:"Otro",i:"🧰"}].map(({t,i}) => (
+                  <button key={t} type="button"
+                    className={solicitudForm.equipo.toLowerCase().includes(t.toLowerCase()) ? "request-type-card selected" : "request-type-card"}
+                    onClick={() => setSolicitudForm({...solicitudForm, equipo: t})}>
+                    <span>{i}</span>{t}
+                  </button>
                 ))}
               </div>
-            </section>
-          )}
-
-          {vistaDashboard === "detalleTecnico" && tecnicoSeleccionado && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Perfil técnico</span>
-                  <h1>{tecnicoSeleccionado.name}</h1>
-                  <p>Información profesional del técnico seleccionado.</p>
-                </div>
-                <button className="btn-pro secondary" type="button" onClick={() => setVistaDashboard("tecnicos")}>
-                  Volver
-                </button>
+              <div className="form-row-pro"><label>Equipo tecnológico</label>
+                <input type="text" placeholder="Laptop Lenovo, celular Samsung, impresora HP..." value={solicitudForm.equipo} onChange={(e) => setSolicitudForm({...solicitudForm, equipo: e.target.value})}/>
               </div>
-
-              <div className="profile-layout">
-                <div className="profile-summary tecnico-detail-card">
-                  {tecnicoSeleccionado.profileImageUrl ? (
-                    <img className="profile-photo-large" src={tecnicoSeleccionado.profileImageUrl} alt="Técnico" />
-                  ) : (
-                    <div className="profile-avatar-large">
-                      {tecnicoSeleccionado.name ? tecnicoSeleccionado.name.charAt(0).toUpperCase() : "T"}
-                    </div>
-                  )}
-                  <h3>{tecnicoSeleccionado.name}</h3>
-                  <p>{tecnicoSeleccionado.email}</p>
-
-                  <div className="profile-info-list">
-                    <div><span>Teléfono</span><strong>{tecnicoSeleccionado.phone || "No registrado"}</strong></div>
-                    <div><span>Especialidades</span><strong>{tecnicoSeleccionado.specialties || "No registrado"}</strong></div>
-                    <div><span>Zona</span><strong>{tecnicoSeleccionado.serviceZone || "No registrado"}</strong></div>
-                    <div><span>Disponibilidad</span><strong>{tecnicoSeleccionado.availability || "No registrado"}</strong></div>
-                    <div><span>Dirección</span><strong>{tecnicoSeleccionado.address || "No registrado"}</strong></div>
-                  </div>
-                </div>
-
-                <div className="profile-form">
-                  <h3>Solicitar atención</h3>
-                  <p className="info-texto">
-                    Usa este perfil como referencia y registra una solicitud para que el equipo de IntiFix gestione el servicio.
-                  </p>
-                  <button
-                    className="btn-pro primary full"
-                    type="button"
-                    onClick={() => {
-                      setSolicitudForm({
-                        ...solicitudForm,
-                        titulo: `Servicio con ${tecnicoSeleccionado.name}`,
-                      });
-                      setVistaDashboard("nuevaSolicitud");
-                    }}
-                  >
-                    Crear solicitud para este servicio
-                  </button>
-                </div>
+              <div className="form-row-pro"><label>Título de la falla</label>
+                <input type="text" placeholder="No enciende, pantalla rota, equipo lento..." value={solicitudForm.titulo} onChange={(e) => setSolicitudForm({...solicitudForm, titulo: e.target.value})}/>
               </div>
-            </section>
-          )}
-
-          {vistaDashboard === "nuevaSolicitud" && usuarioActual.role === "CLIENTE" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Solicitud</span>
-                  <h1>Registrar reparación</h1>
-                  <p>
-                    Completa los datos del equipo, describe la falla y elige cómo
-                    deseas recibir la atención.
-                  </p>
-                </div>
+              <div className="form-row-pro"><label>Descripción del problema</label>
+                <textarea placeholder="Describe qué pasó, desde cuándo ocurre y qué intentaste hacer." value={solicitudForm.descripcion} onChange={(e) => setSolicitudForm({...solicitudForm, descripcion: e.target.value})}/>
               </div>
-
-              <form className="profile-form solicitud-form solicitud-form-pro" onSubmit={registrarSolicitud}>
-                <div className="request-type-grid">
-                  {["Laptop", "Celular", "Impresora", "PC", "Tablet", "Otro"].map((tipo) => (
-                    <button
-                      key={tipo}
-                      type="button"
-                      className={solicitudForm.equipo.toLowerCase().includes(tipo.toLowerCase()) ? "request-type-card selected" : "request-type-card"}
-                      onClick={() => setSolicitudForm({ ...solicitudForm, equipo: tipo })}
-                    >
-                      <span>{tipo === "Laptop" ? "💻" : tipo === "Celular" ? "📱" : tipo === "Impresora" ? "🖨️" : tipo === "PC" ? "🖥️" : tipo === "Tablet" ? "📲" : "🧰"}</span>
-                      {tipo}
+              <div className="form-row-pro"><label>Modalidad del servicio</label>
+                <div className="modalidad-cards">
+                  {[{m:"TALLER",i:"🏪",t:"Llevar al taller",s:"El cliente lleva el equipo al punto de atención."},{m:"DOMICILIO",i:"🏠",t:"Atención a domicilio",s:"El técnico atiende en la dirección indicada."}].map(({m,i,t,s}) => (
+                    <button key={m} type="button" className={solicitudForm.modalidad===m?"modalidad-card selected":"modalidad-card"}
+                      onClick={() => setSolicitudForm({...solicitudForm, modalidad:m})}>
+                      <span>{i}</span><strong>{t}</strong><small>{s}</small>
                     </button>
                   ))}
                 </div>
-
-                <div className="form-row-pro">
-                  <label>Equipo tecnológico</label>
-                  <input
-                    type="text"
-                    placeholder="Ejemplo: Laptop Lenovo, celular Samsung, impresora HP"
-                    value={solicitudForm.equipo}
-                    onChange={(e) =>
-                      setSolicitudForm({ ...solicitudForm, equipo: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="form-row-pro">
-                  <label>Título de la falla</label>
-                  <input
-                    type="text"
-                    placeholder="Ejemplo: No enciende, pantalla rota, equipo lento"
-                    value={solicitudForm.titulo}
-                    onChange={(e) =>
-                      setSolicitudForm({ ...solicitudForm, titulo: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="form-row-pro">
-                  <label>Descripción del problema</label>
-                  <textarea
-                    placeholder="Describe qué pasó, desde cuándo ocurre y qué intentaste hacer."
-                    value={solicitudForm.descripcion}
-                    onChange={(e) =>
-                      setSolicitudForm({
-                        ...solicitudForm,
-                        descripcion: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="form-row-pro">
-                  <label>Modalidad del servicio</label>
-                  <div className="modalidad-cards">
-                    <button
-                      type="button"
-                      className={solicitudForm.modalidad === "TALLER" ? "modalidad-card selected" : "modalidad-card"}
-                      onClick={() => setSolicitudForm({ ...solicitudForm, modalidad: "TALLER" })}
-                    >
-                      <span>🏪</span>
-                      <strong>Llevar al taller</strong>
-                      <small>El cliente lleva el equipo al punto de atención.</small>
-                    </button>
-                    <button
-                      type="button"
-                      className={solicitudForm.modalidad === "DOMICILIO" ? "modalidad-card selected" : "modalidad-card"}
-                      onClick={() => setSolicitudForm({ ...solicitudForm, modalidad: "DOMICILIO" })}
-                    >
-                      <span>🏠</span>
-                      <strong>Atención a domicilio</strong>
-                      <small>El técnico atiende en la dirección indicada.</small>
-                    </button>
-                  </div>
-                </div>
-
-                {solicitudForm.modalidad === "DOMICILIO" && (
-                  <div className="form-row-pro">
-                    <label>Dirección de atención</label>
-                    <input
-                      type="text"
-                      placeholder="Ejemplo: Av. Los Próceres 123, San Juan de Lurigancho"
-                      value={solicitudForm.direccion}
-                      onChange={(e) =>
-                        setSolicitudForm({
-                          ...solicitudForm,
-                          direccion: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                )}
-
-                <button className="btn-pro primary full" type="submit" disabled={cargando}>
-                  {cargando ? "Registrando..." : "Registrar solicitud"}
-                </button>
-              </form>
-            </section>
-          )}
-
-          {vistaDashboard === "historial" && usuarioActual.role === "CLIENTE" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Historial</span>
-                  <h1>Mis solicitudes</h1>
-                  <p>
-                    Consulta tus servicios registrados, filtra por estado y revisa
-                    el detalle de cada reparación.
-                  </p>
-                </div>
-
-                <button
-                  className="btn-pro primary"
-                  type="button"
-                  onClick={() => cargarMisSolicitudes()}
-                >
-                  Actualizar
-                </button>
               </div>
-
-              <div className="search-panel-pro solicitud-filter">
-                <label>Filtrar por estado</label>
-                <select
-                  value={filtroEstadoSolicitud}
-                  onChange={(e) => {
-                    setFiltroEstadoSolicitud(e.target.value);
-                    cargarMisSolicitudes(e.target.value);
-                  }}
-                >
-                  <option value="TODOS">Todos</option>
-                  <option value="REGISTRADA">Registrada</option>
-                  <option value="EN_REVISION">En revisión</option>
-                  <option value="ASIGNADA">Asignada</option>
-                  <option value="EN_PROCESO">En proceso</option>
-                  <option value="FINALIZADA">Finalizada</option>
-                  <option value="CANCELADA">Cancelada</option>
-                </select>
-              </div>
-
-              <div className="technicians-grid-pro">
-                {solicitudes.length === 0 && (
-                  <div className="empty-state-pro">
-                    <div>📭</div>
-                    <h3>No hay solicitudes registradas</h3>
-                    <p>Cuando registres una reparación aparecerá aquí.</p>
-                  </div>
-                )}
-
-                {solicitudes.map((solicitud) => (
-                  <div className="technician-pro-card solicitud-card" key={solicitud.id}>
-                    <div className="technician-head">
-                      <div className="avatar-tech">🧾</div>
-                      <div>
-                        <h3>{solicitud.titulo}</h3>
-                        <span className={`estado-badge estado-${solicitud.estado}`}>
-                          {solicitud.estado}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="tech-info">
-                      <p>
-                        <strong>Código:</strong> {solicitud.codigo}
-                      </p>
-                      <p>
-                        <strong>Equipo:</strong> {solicitud.equipo}
-                      </p>
-                      <p>
-                        <strong>Modalidad:</strong> {solicitud.modalidad}
-                      </p>
-                      <p>
-                        <strong>Fecha:</strong>{" "}
-                        {solicitud.fechaRegistro
-                          ? new Date(solicitud.fechaRegistro).toLocaleString()
-                          : "No registrada"}
-                      </p>
-                    </div>
-
-                    <button
-                      className="btn-pro primary full"
-                      type="button"
-                      onClick={() => verDetalleSolicitud(solicitud.id)}
-                    >
-                      Ver detalle
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {vistaDashboard === "seguimiento" && usuarioActual.role === "CLIENTE" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Seguimiento</span>
-                  <h1>Consultar estado</h1>
-                  <p>Ingresa el código generado al registrar tu solicitud.</p>
-                </div>
-              </div>
-
-              <form className="profile-form seguimiento-form" onSubmit={consultarEstadoSolicitud}>
-                <div className="form-row-pro">
-                  <label>Código de solicitud</label>
-                  <input
-                    type="text"
-                    placeholder="Ejemplo: IFX-1234ABCD"
-                    value={codigoSeguimiento}
-                    onChange={(e) => setCodigoSeguimiento(e.target.value)}
-                  />
-                </div>
-
-                <button className="btn-pro primary full" type="submit">
-                  Consultar estado
-                </button>
-              </form>
-
-              {resultadoSeguimiento && (
-                <div className="profile-summary seguimiento-card">
-                  <span className="section-badge">Resultado</span>
-                  <h3>{resultadoSeguimiento.titulo}</h3>
-
-                  <div className="profile-info-list">
-                    <div>
-                      <span>Código</span>
-                      <strong>{resultadoSeguimiento.codigo}</strong>
-                    </div>
-
-                    <div>
-                      <span>Estado actual</span>
-                      <strong>{resultadoSeguimiento.estado}</strong>
-                    </div>
-
-                    <div>
-                      <span>Equipo</span>
-                      <strong>{resultadoSeguimiento.equipo}</strong>
-                    </div>
-
-                    <div>
-                      <span>Modalidad</span>
-                      <strong>{resultadoSeguimiento.modalidad}</strong>
-                    </div>
-                  </div>
+              {solicitudForm.modalidad === "DOMICILIO" && (
+                <div className="form-row-pro"><label>Dirección de atención</label>
+                  <input type="text" placeholder="Av. Los Próceres 123, San Juan de Lurigancho" value={solicitudForm.direccion} onChange={(e) => setSolicitudForm({...solicitudForm, direccion: e.target.value})}/>
                 </div>
               )}
-            </section>
-          )}
+              {solicitudForm.tecnicoId && (
+                <div style={{background:"var(--blue-soft)",border:"1.5px solid rgba(26,107,255,0.2)",borderRadius:"var(--r-md)",padding:"10px 14px",fontSize:13,color:"var(--blue)",fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span>✓ Técnico preferido seleccionado — el backend valida compatibilidad de especialidad</span>
+                  <button type="button" onClick={() => setSolicitudForm({...solicitudForm, tecnicoId: null})} style={{background:"none",border:"none",color:"var(--red)",cursor:"pointer",fontWeight:700,fontSize:13}}>✕</button>
+                </div>
+              )}
+              <button className="btn-pro primary full" type="submit" disabled={cargando}>
+                {cargando ? "Registrando..." : solicitudForm.tecnicoId ? "Registrar con técnico preferido" : "Registrar solicitud"}
+              </button>
+            </form>
+          </section>
+        )}
 
-          {vistaDashboard === "solicitudesGestion" &&
-            (usuarioActual.role === "ADMIN" || usuarioActual.role === "TECNICO") && (
-              <section className="content-pro">
-                <div className="page-heading">
-                  <div>
-                    <span className="section-badge">Gestión</span>
-                    <h1>Solicitudes de reparación</h1>
-                    <p>
-                      Revisa solicitudes registradas, filtra por estado y actualiza
-                      el avance del servicio.
-                    </p>
+        {/* ══ HISTORIAL ══ */}
+        {vistaDashboard === "historial" && usuarioActual.role === "CLIENTE" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Historial</span><h1>Mis solicitudes</h1><p>Revisa el estado de todas tus reparaciones.</p></div>
+              <button className="btn-pro primary" type="button" onClick={() => cargarMisSolicitudes()}>Actualizar</button>
+            </div>
+            <div className="search-panel-pro">
+              <label>Filtrar por estado</label>
+              <select value={filtroEstadoSolicitud} onChange={(e) => { setFiltroEstadoSolicitud(e.target.value); cargarMisSolicitudes(e.target.value); }}>
+                <option value="TODOS">Todos</option>
+                {["REGISTRADA","EN_REVISION","ASIGNADA","EN_PROCESO","FINALIZADA","CANCELADA"].map(e => <option key={e} value={e}>{e}</option>)}
+              </select>
+            </div>
+            <div className="technicians-grid-pro">
+              {solicitudes.length === 0 && <div className="empty-state-pro"><div>📭</div><h3>Sin solicitudes</h3><p>Cuando registres una reparación aparecerá aquí.</p></div>}
+              {solicitudes.map((sol) => (
+                <div className="technician-pro-card solicitud-card" key={sol.id}>
+                  <div className="technician-head">
+                    <div className="avatar-tech" style={{fontSize:20}}>🧾</div>
+                    <div><h3>{sol.titulo}</h3><span className={`estado-badge estado-${sol.estado}`}>{sol.estado}</span></div>
+                  </div>
+                  <div className="tech-info">
+                    <p><strong>Código:</strong> {sol.codigo}</p>
+                    <p><strong>Equipo:</strong> {sol.equipo}</p>
+                    <p><strong>Modalidad:</strong> {sol.modalidad}</p>
+                    <p><strong>Fecha:</strong> {sol.fechaRegistro ? new Date(sol.fechaRegistro).toLocaleString() : "—"}</p>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button className="btn-pro primary" style={{flex:1,position:"relative"}}
+                      type="button" onClick={() => verDetalleSolicitud(sol.id)}>
+                      Ver detalle
+                    </button>
+                    <button className="btn-pro secondary" style={{position:"relative",width:44,flexShrink:0,padding:0,display:"flex",alignItems:"center",justifyContent:"center"}}
+                      type="button" title="Abrir chat" onClick={() => verDetalleSolicitud(sol.id)}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      {chatNoLeidos[sol.id] > 0 && (
+                        <span style={{position:"absolute",top:-5,right:-5,background:"var(--red)",color:"#fff",borderRadius:"50%",width:17,height:17,fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {chatNoLeidos[sol.id]}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ══ SEGUIMIENTO ══ */}
+        {vistaDashboard === "seguimiento" && usuarioActual.role === "CLIENTE" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Seguimiento</span><h1>Rastrear solicitud</h1><p>Ingresa tu código para ver en qué fase está tu reparación.</p></div>
+            </div>
+            <form className="profile-form" style={{maxWidth:500}} onSubmit={consultarEstadoSolicitud}>
+              <div className="form-row-pro"><label>Código de solicitud</label>
+                <input type="text" placeholder="IFX-1234ABCD" value={codigoSeguimiento} onChange={(e) => setCodigoSeguimiento(e.target.value)}/>
+              </div>
+              <button className="btn-pro primary full" type="submit">Consultar estado</button>
+            </form>
+
+            {resultadoSeguimiento && (() => {
+              const pasoActual = resultadoSeguimiento.pasoActual || 1;
+              const fases = [
+                { label:"Sin revisar", desc:"Tu solicitud fue registrada y está en espera.",
+                  Ic: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg> },
+                { label:"Revisado",    desc:"Un técnico revisó y será asignado pronto.",
+                  Ic: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
+                { label:"En atención", desc:"Tu equipo está siendo reparado ahora mismo.",
+                  Ic: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> },
+              ];
+              return (
+                <div className="seguimiento-resultado">
+                  <div className="seg-header">
+                    <div>
+                      <span className="section-badge" style={{background:"rgba(0,184,122,0.1)",borderColor:"rgba(0,184,122,0.2)",color:"var(--green)"}}>Resultado</span>
+                      <h3>{resultadoSeguimiento.titulo}</h3>
+                      <p style={{color:"var(--text3)",fontSize:13}}>{resultadoSeguimiento.codigo}</p>
+                      {/* Fase del backend: faseEtiqueta y faseDescripcion */}
+                      {resultadoSeguimiento.faseEtiqueta && (
+                        <div style={{marginTop:8,padding:"8px 12px",background:"var(--blue-soft)",borderRadius:"var(--r-md)",display:"inline-flex",gap:8,alignItems:"center"}}>
+                          <span style={{fontWeight:700,fontSize:13,color:"var(--blue)"}}>
+                            {resultadoSeguimiento.faseIcono} {resultadoSeguimiento.faseEtiqueta}
+                          </span>
+                          {resultadoSeguimiento.faseDescripcion && (
+                            <span style={{fontSize:12,color:"var(--text2)"}}>{resultadoSeguimiento.faseDescripcion}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{display:"flex",gap:8,flexDirection:"column",alignItems:"flex-end"}}>
+                      {resultadoSeguimiento.finalizada && <span className="estado-badge estado-FINALIZADA">✓ Finalizada</span>}
+                      {resultadoSeguimiento.cancelada  && <span className="estado-badge estado-CANCELADA">✕ Cancelada</span>}
+                    </div>
+                  </div>
+                  <div className="fases-tracker">
+                    {fases.map((f, idx) => {
+                      const isActive = pasoActual === idx + 1;
+                      const isDone   = pasoActual > idx + 1;
+                      return (
+                        <React.Fragment key={idx}>
+                          <div className={`fase-step${isDone?" done":""}${isActive?" active":""}`}>
+                            <div className="fase-circle">
+                              {isDone ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20,6 9,17 4,12"/></svg> : <f.Ic/>}
+                            </div>
+                            <span className="fase-label">{f.label}</span>
+                            {(isDone || isActive) && <span className="fase-desc">{f.desc}</span>}
+                          </div>
+                          {idx < 2 && <div className={`fase-line${pasoActual > idx + 1?" done":""}`}/>}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                  <div className="profile-info-list" style={{marginTop:8}}>
+                    <div><span>Equipo</span><strong>{resultadoSeguimiento.equipo}</strong></div>
+                    <div><span>Modalidad</span><strong>{resultadoSeguimiento.modalidad}</strong></div>
+                    {resultadoSeguimiento.tecnicoNombre && <div><span>Técnico asignado</span><strong>{resultadoSeguimiento.tecnicoNombre}</strong></div>}
+                    <div><span>Última actualización</span><strong>{resultadoSeguimiento.fechaActualizacion ? new Date(resultadoSeguimiento.fechaActualizacion).toLocaleString() : "—"}</strong></div>
                   </div>
 
-                  <button
-                    className="btn-pro primary"
-                    type="button"
-                    onClick={() => cargarSolicitudesGestion()}
-                  >
-                    Actualizar
-                  </button>
-                </div>
-
-                <div className="search-panel-pro solicitud-filter">
-                  <label>Filtrar por estado</label>
-                  <select
-                    value={filtroEstadoSolicitud}
-                    onChange={(e) => {
-                      setFiltroEstadoSolicitud(e.target.value);
-                      cargarSolicitudesGestion(e.target.value);
-                    }}
-                  >
-                    <option value="TODOS">Todos</option>
-                    <option value="REGISTRADA">Registrada</option>
-                    <option value="EN_REVISION">En revisión</option>
-                    <option value="ASIGNADA">Asignada</option>
-                    <option value="EN_PROCESO">En proceso</option>
-                    <option value="FINALIZADA">Finalizada</option>
-                    <option value="CANCELADA">Cancelada</option>
-                  </select>
-                </div>
-
-                <div className="technicians-grid-pro">
-                  {solicitudes.length === 0 && (
-                    <div className="empty-state-pro">
-                      <div>📭</div>
-                      <h3>No hay solicitudes</h3>
-                      <p>Cuando los clientes registren servicios aparecerán aquí.</p>
+                  {/* Botón para ir al detalle completo con chat */}
+                  <div style={{marginTop:16,padding:"14px 16px",background:"rgba(26,107,255,0.06)",border:"1.5px solid rgba(26,107,255,0.15)",borderRadius:"var(--r-lg)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <div>
+                        <p style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>¿Tienes dudas sobre tu reparación?</p>
+                        <p style={{fontSize:12,color:"var(--text3)"}}>Ve al historial para chatear directamente con el técnico asignado.</p>
+                      </div>
                     </div>
-                  )}
+                    <button className="btn-pro primary" style={{flexShrink:0,width:"auto",padding:"10px 18px",fontSize:13}}
+                      onClick={() => { setVistaDashboard("historial"); cargarMisSolicitudes(); }}>
+                      Ver historial y chatear
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </section>
+        )}
 
-                  {solicitudes.map((solicitud) => (
-                    <div className="technician-pro-card solicitud-card" key={solicitud.id}>
-                      <div className="technician-head">
-                        <div className="avatar-tech">🧾</div>
-                        <div>
-                          <h3>{solicitud.titulo}</h3>
-                          <span className={`estado-badge estado-${solicitud.estado}`}>
-                            {solicitud.estado}
-                          </span>
-                        </div>
-                      </div>
+        {/* ══ SOLICITUDES GESTIÓN ══ */}
+        {vistaDashboard === "solicitudesGestion" && (usuarioActual.role === "ADMIN" || usuarioActual.role === "TECNICO") && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Gestión</span><h1>Solicitudes de reparación</h1><p>Revisa, filtra y actualiza el avance de cada servicio.</p></div>
+              <button className="btn-pro primary" type="button" onClick={() => cargarSolicitudesGestion()}>Actualizar</button>
+            </div>
+            <div className="search-panel-pro">
+              <label>Filtrar por estado</label>
+              <select value={filtroEstadoSolicitud} onChange={(e) => { setFiltroEstadoSolicitud(e.target.value); cargarSolicitudesGestion(e.target.value); }}>
+                <option value="TODOS">Todos</option>
+                {["REGISTRADA","EN_REVISION","ASIGNADA","EN_PROCESO","FINALIZADA","CANCELADA"].map(e => <option key={e} value={e}>{e}</option>)}
+              </select>
+            </div>
+            <div className="technicians-grid-pro">
+              {solicitudes.length === 0 && <div className="empty-state-pro"><div>📭</div><h3>Sin solicitudes</h3><p>Cuando los clientes registren servicios aparecerán aquí.</p></div>}
+              {solicitudes.map((sol) => (
+                <div className="technician-pro-card solicitud-card" key={sol.id}>
+                  <div className="technician-head">
+                    <div className="avatar-tech" style={{fontSize:20}}>🧾</div>
+                    <div><h3>{sol.titulo}</h3><span className={`estado-badge estado-${sol.estado}`}>{sol.estado}</span></div>
+                  </div>
+                  <div className="tech-info">
+                    <p><strong>Código:</strong> {sol.codigo}</p>
+                    <p><strong>Cliente:</strong> {sol.clienteNombre}</p>
+                    <p><strong>Equipo:</strong> {sol.equipo}</p>
+                    <p><strong>Modalidad:</strong> {sol.modalidad}</p>
+                  </div>
+                  <button className="btn-pro primary full" type="button" onClick={() => verDetalleSolicitud(sol.id)}>Gestionar</button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
-                      <div className="tech-info">
-                        <p>
-                          <strong>Código:</strong> {solicitud.codigo}
-                        </p>
-                        <p>
-                          <strong>Cliente:</strong> {solicitud.clienteNombre}
-                        </p>
-                        <p>
-                          <strong>Equipo:</strong> {solicitud.equipo}
-                        </p>
-                        <p>
-                          <strong>Modalidad:</strong> {solicitud.modalidad}
-                        </p>
-                      </div>
+        {/* ══ DETALLE SOLICITUD ══ */}
+        {vistaDashboard === "detalleSolicitud" && solicitudSeleccionada && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div>
+                <span className="section-badge">Detalle</span>
+                <h1>{solicitudSeleccionada.titulo}</h1>
+                <code style={{background:"var(--surface2)",padding:"3px 10px",borderRadius:6,fontSize:13,fontFamily:"monospace"}}>{solicitudSeleccionada.codigo}</code>
+              </div>
+              <button className="btn-pro secondary" type="button" onClick={() => {
+                if (usuarioActual.role === "CLIENTE") { setVistaDashboard("historial"); cargarMisSolicitudes(); }
+                else { setVistaDashboard("solicitudesGestion"); cargarSolicitudesGestion(); }
+              }}>← Volver</button>
+            </div>
 
-                      <button
-                        className="btn-pro primary full"
-                        type="button"
-                        onClick={() => verDetalleSolicitud(solicitud.id)}
-                      >
-                        Gestionar
-                      </button>
+            <div className="detalle-grid">
+              <div>
+                <div className="profile-summary detalle-solicitud" style={{textAlign:"left",alignItems:"flex-start"}}>
+                  <span className={`estado-badge estado-${solicitudSeleccionada.estado}`} style={{fontSize:13,padding:"5px 14px"}}>{solicitudSeleccionada.estado}</span>
+                  <h3 style={{marginTop:8}}>{solicitudSeleccionada.equipo}</h3>
+                  <div className="profile-info-list" style={{width:"100%"}}>
+                    <div><span>Cliente</span><strong>{solicitudSeleccionada.clienteNombre || "—"}</strong></div>
+                    <div><span>Correo</span><strong>{solicitudSeleccionada.clienteCorreo || "—"}</strong></div>
+                    <div><span>Modalidad</span><strong>{solicitudSeleccionada.modalidad}</strong></div>
+                    <div><span>Dirección</span><strong>{solicitudSeleccionada.direccion || "No aplica"}</strong></div>
+                  </div>
+                  <div className="detalle-descripcion" style={{width:"100%"}}>{solicitudSeleccionada.descripcion}</div>
+                </div>
+                <div className="profile-form" style={{marginTop:16}}>
+                  <h3>Historial de cambios</h3>
+                  {(!solicitudSeleccionada.historial || solicitudSeleccionada.historial.length === 0) && <p className="info-texto">Sin historial registrado.</p>}
+                  {solicitudSeleccionada.historial?.map((item) => (
+                    <div className="historial-item" key={item.id}>
+                      <strong>{item.estadoAnterior || "INICIO"} → {item.estadoNuevo}</strong>
+                      <p>{item.comentario}</p>
+                      <small>Responsable: {item.responsable} | {item.fechaCambio ? new Date(item.fechaCambio).toLocaleString() : ""}</small>
                     </div>
                   ))}
                 </div>
-              </section>
-            )}
-
-          {vistaDashboard === "detalleSolicitud" && solicitudSeleccionada && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Detalle</span>
-                  <h1>{solicitudSeleccionada.titulo}</h1>
-                  <p>Código: {solicitudSeleccionada.codigo}</p>
-                </div>
-
-                <button
-                  className="btn-pro secondary"
-                  type="button"
-                  onClick={() => {
-                    if (usuarioActual.role === "CLIENTE") {
-                      setVistaDashboard("historial");
-                      cargarMisSolicitudes();
-                    } else {
-                      setVistaDashboard("solicitudesGestion");
-                      cargarSolicitudesGestion();
-                    }
-                  }}
-                >
-                  Volver
-                </button>
               </div>
 
-              <div className="profile-layout">
-                <div className="profile-summary detalle-solicitud">
-                  <h3>Información de la solicitud</h3>
-
-                  <div className="profile-info-list">
-                    <div>
-                      <span>Estado</span>
-                      <strong>{solicitudSeleccionada.estado}</strong>
-                    </div>
-
-                    <div>
-                      <span>Equipo</span>
-                      <strong>{solicitudSeleccionada.equipo}</strong>
-                    </div>
-
-                    <div>
-                      <span>Cliente</span>
-                      <strong>
-                        {solicitudSeleccionada.clienteNombre || "No registrado"}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Correo</span>
-                      <strong>
-                        {solicitudSeleccionada.clienteCorreo || "No registrado"}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <span>Modalidad</span>
-                      <strong>{solicitudSeleccionada.modalidad}</strong>
-                    </div>
-
-                    <div>
-                      <span>Dirección</span>
-                      <strong>{solicitudSeleccionada.direccion || "No aplica"}</strong>
-                    </div>
-                  </div>
-
-                  <p className="detalle-descripcion">
-                    {solicitudSeleccionada.descripcion}
-                  </p>
-                </div>
-
+              <div className="detalle-right">
                 <div className="profile-form">
                   {usuarioActual.role === "CLIENTE" && (
                     <>
                       <h3>Adjuntar evidencia</h3>
-
                       <form onSubmit={subirEvidencia}>
-                        <div className="form-row-pro">
-                          <label>Imagen del problema</label>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => setArchivoEvidencia(e.target.files[0])}
-                          />
+                        <div className="form-row-pro"><label>Imagen del problema</label>
+                          <input type="file" accept="image/*" onChange={(e) => setArchivoEvidencia(e.target.files[0])}/>
                         </div>
-
-                        <button
-                          className="btn-pro primary full"
-                          type="submit"
-                          disabled={cargando}
-                        >
-                          {cargando ? "Subiendo..." : "Subir evidencia"}
-                        </button>
+                        <button className="btn-pro primary full" type="submit" disabled={cargando}>{cargando ? "Subiendo..." : "Subir evidencia"}</button>
                       </form>
                     </>
                   )}
-
-                  {(usuarioActual.role === "ADMIN" ||
-                    usuarioActual.role === "TECNICO") && (
+                  {(usuarioActual.role === "ADMIN" || usuarioActual.role === "TECNICO") && (
                     <>
                       <h3>Actualizar estado</h3>
-
                       <form onSubmit={actualizarEstadoSolicitud}>
-                        <div className="form-row-pro">
-                          <label>Nuevo estado</label>
-                          <select
-                            value={estadoNuevoSolicitud}
-                            onChange={(e) => setEstadoNuevoSolicitud(e.target.value)}
-                          >
-                            <option value="REGISTRADA">Registrada</option>
-                            <option value="EN_REVISION">En revisión</option>
-                            <option value="ASIGNADA">Asignada</option>
-                            <option value="EN_PROCESO">En proceso</option>
-                            <option value="FINALIZADA">Finalizada</option>
-                            <option value="CANCELADA">Cancelada</option>
+                        <div className="form-row-pro"><label>Nuevo estado</label>
+                          <select value={estadoNuevoSolicitud} onChange={(e) => setEstadoNuevoSolicitud(e.target.value)}>
+                            {["REGISTRADA","EN_REVISION","ASIGNADA","EN_PROCESO","FINALIZADA","CANCELADA"].map(e => <option key={e} value={e}>{e}</option>)}
                           </select>
                         </div>
-
-                        <div className="form-row-pro">
-                          <label>Comentario</label>
-                          <textarea
-                            placeholder="Ejemplo: Solicitud revisada y asignada para diagnóstico."
-                            value={comentarioEstado}
-                            onChange={(e) => setComentarioEstado(e.target.value)}
-                          />
+                        <div className="form-row-pro"><label>Comentario</label>
+                          <textarea placeholder="Describe el cambio de estado..." value={comentarioEstado} onChange={(e) => setComentarioEstado(e.target.value)}/>
                         </div>
-
-                        <button
-                          className="btn-pro success full"
-                          type="submit"
-                          disabled={cargando}
-                        >
-                          {cargando ? "Actualizando..." : "Guardar cambio de estado"}
-                        </button>
+                        <button className="btn-pro success full" type="submit" disabled={cargando}>{cargando ? "Guardando..." : "Guardar cambio de estado"}</button>
                       </form>
                     </>
                   )}
-
-                  <h3>Evidencias</h3>
-
-                  {(!solicitudSeleccionada.adjuntos ||
-                    solicitudSeleccionada.adjuntos.length === 0) && (
-                    <p className="ayuda-campo info-texto">
-                      Aún no hay evidencias adjuntas.
-                    </p>
-                  )}
-
-                  {solicitudSeleccionada.adjuntos?.map((adjunto) => (
-                    <div className="evidencia-item" key={adjunto.id}>
-                      <span>🖼️ {adjunto.nombreArchivo}</span>
-                      <a
-                        href={`http://localhost:8081${adjunto.urlArchivo}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Ver imagen
-                      </a>
+                  <h3 style={{marginTop:16}}>Evidencias</h3>
+                  {(!solicitudSeleccionada.adjuntos || solicitudSeleccionada.adjuntos.length === 0) && <p className="info-texto">Sin evidencias adjuntas.</p>}
+                  {solicitudSeleccionada.adjuntos?.map((adj) => (
+                    <div className="evidencia-item" key={adj.id}>
+                      <span>🖼️ {adj.nombreArchivo}</span>
+                      <a href={`http://localhost:8081${adj.urlArchivo}`} target="_blank" rel="noreferrer">Ver imagen</a>
                     </div>
                   ))}
                 </div>
-              </div>
 
-              <div className="profile-form historial-box">
-                <h3>Historial de cambios</h3>
-
-                {(!solicitudSeleccionada.historial ||
-                  solicitudSeleccionada.historial.length === 0) && (
-                  <p className="info-texto">No hay historial registrado.</p>
-                )}
-
-                {solicitudSeleccionada.historial?.map((item) => (
-                  <div className="historial-item" key={item.id}>
-                    <strong>
-                      {item.estadoAnterior || "INICIO"} → {item.estadoNuevo}
-                    </strong>
-                    <p>{item.comentario}</p>
-                    <small>
-                      Responsable: {item.responsable} |{" "}
-                      {item.fechaCambio
-                        ? new Date(item.fechaCambio).toLocaleString()
-                        : ""}
-                    </small>
+                {/* CHAT */}
+                <div className="chat-box">
+                  <div className="chat-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <h3>Chat con el técnico</h3>
+                    <button type="button" className="chat-refresh" onClick={() => cargarChat(solicitudSeleccionada.id)}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </button>
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {vistaDashboard === "usuariosAdmin" && usuarioActual.role === "ADMIN" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Administración</span>
-                  <h1>Gestión de usuarios</h1>
-                  <p>Visualiza clientes, técnicos y administradores. Activa, desactiva o banea cuentas.</p>
-                </div>
-                <button className="btn-pro primary" type="button" onClick={() => cargarUsuariosAdmin()}>
-                  Actualizar
-                </button>
-              </div>
-
-              <div className="search-panel-pro admin-users-filter">
-                <div className="form-row-pro">
-                  <label>Buscar usuario</label>
-                  <input
-                    type="text"
-                    placeholder="Buscar por nombre, correo, DNI o teléfono"
-                    value={filtroUsuarioAdmin}
-                    onChange={(e) => setFiltroUsuarioAdmin(e.target.value)}
-                  />
-                </div>
-                <div className="form-row-pro">
-                  <label>Rol</label>
-                  <select value={filtroRolAdmin} onChange={(e) => setFiltroRolAdmin(e.target.value)}>
-                    <option value="TODOS">Todos</option>
-                    <option value="CLIENTE">Clientes</option>
-                    <option value="TECNICO">Técnicos</option>
-                    <option value="ADMIN">Administradores</option>
-                  </select>
-                </div>
-                <div className="form-row-pro">
-                  <label>Estado</label>
-                  <select value={filtroEstadoAdmin} onChange={(e) => setFiltroEstadoAdmin(e.target.value)}>
-                    <option value="TODOS">Todos</option>
-                    <option value="APROBADO">Activo / aprobado</option>
-                    <option value="PENDIENTE">Pendiente</option>
-                    <option value="INACTIVO">Inactivo</option>
-                    <option value="BANEADO">Baneado</option>
-                    <option value="ELIMINADO">Eliminado</option>
-                  </select>
-                </div>
-                <button
-                  className="btn-pro primary full"
-                  type="button"
-                  onClick={() => cargarUsuariosAdmin(filtroRolAdmin, filtroEstadoAdmin, filtroUsuarioAdmin)}
-                >
-                  Aplicar filtros
-                </button>
-              </div>
-
-              <div className="users-table-pro">
-                {usuariosAdmin.length === 0 && (
-                  <div className="empty-state-pro">
-                    <div>👥</div>
-                    <h3>No hay usuarios para mostrar</h3>
-                    <p>Prueba cambiando los filtros o actualizando la lista.</p>
+                  <div className="chat-messages">
+                    {chatMensajes.length === 0 && <div className="chat-empty">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{marginBottom:8}}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <p style={{fontWeight:600,color:"var(--text2)"}}>Sin mensajes aún</p>
+                      <p style={{fontSize:12,color:"var(--text3)",marginTop:4}}>Escribe abajo para comunicarte con el técnico o admin asignado a esta solicitud.</p>
+                    </div>}
+                    {chatMensajes.map((msg) => {
+                      const esPropio = msg.remitenteNombre === usuarioActual.name;
+                      return (
+                        <div key={msg.id} className={`chat-msg ${esPropio ? "chat-msg-own" : "chat-msg-other"}`}>
+                          {!esPropio && <div className="chat-msg-author">{msg.remitenteNombre} · {msg.remitenteRol}</div>}
+                          <div className="chat-bubble">{msg.contenido}</div>
+                          <div className="chat-time">{msg.fechaEnvio ? new Date(msg.fechaEnvio).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) : ""}</div>
+                        </div>
+                      );
+                    })}
+                    <div ref={chatEndRef}/>
                   </div>
-                )}
-
-                {usuariosAdmin.map((user) => (
-                  <div className="user-admin-row" key={user.id}>
-                    <div className="user-admin-main">
-                      {user.profileImageUrl ? (
-                        <img className="avatar-img" src={user.profileImageUrl} alt="Usuario" />
-                      ) : (
-                        <div className="avatar-user">{user.name ? user.name.charAt(0).toUpperCase() : "U"}</div>
-                      )}
-                      <div>
-                        <h3>{user.name}</h3>
-                        <p>{user.email}</p>
-                        <small>DNI: {user.dni} | Tel: {user.phone}</small>
-                      </div>
-                    </div>
-                    <div className="user-admin-tags">
-                      <span>{user.role}</span>
-                      <span className={`estado-badge estado-${user.accountStatus}`}>{user.accountStatus}</span>
-                    </div>
-                    <div className="user-admin-actions">
-                      <button className="btn-pro secondary" type="button" onClick={() => verPerfilUsuarioAdmin(user.id)}>
-                        Ver perfil
-                      </button>
-                      <button className="btn-pro success" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "APROBADO")}>Activar</button>
-                      <button className="btn-pro secondary" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "INACTIVO")}>Desactivar</button>
-                      <button className="btn-pro danger" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "BANEADO", "¿Banear esta cuenta?")}>Banear</button>
-                      <button className="btn-pro danger" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "ELIMINADO", "¿Marcar esta cuenta como eliminada?")}>Eliminar</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {vistaDashboard === "detalleUsuarioAdmin" && usuarioActual.role === "ADMIN" && usuarioAdminSeleccionado && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Perfil de usuario</span>
-                  <h1>{usuarioAdminSeleccionado.name}</h1>
-                  <p>Información completa del usuario seleccionado.</p>
-                </div>
-                <button className="btn-pro secondary" type="button" onClick={() => setVistaDashboard("usuariosAdmin")}>
-                  Volver
-                </button>
-              </div>
-
-              <div className="profile-layout">
-                <div className="profile-summary">
-                  {usuarioAdminSeleccionado.profileImageUrl ? (
-                    <img className="profile-photo-large" src={usuarioAdminSeleccionado.profileImageUrl} alt="Usuario" />
-                  ) : (
-                    <div className="profile-avatar-large">
-                      {usuarioAdminSeleccionado.name ? usuarioAdminSeleccionado.name.charAt(0).toUpperCase() : "U"}
-                    </div>
-                  )}
-                  <h3>{usuarioAdminSeleccionado.name}</h3>
-                  <p>{usuarioAdminSeleccionado.email}</p>
-                  <div className="profile-info-list">
-                    <div><span>DNI</span><strong>{usuarioAdminSeleccionado.dni}</strong></div>
-                    <div><span>Teléfono</span><strong>{usuarioAdminSeleccionado.phone}</strong></div>
-                    <div><span>Rol</span><strong>{usuarioAdminSeleccionado.role}</strong></div>
-                    <div><span>Estado</span><strong>{usuarioAdminSeleccionado.accountStatus}</strong></div>
-                    <div><span>Dirección</span><strong>{usuarioAdminSeleccionado.address || "No registrado"}</strong></div>
-                    <div><span>Especialidades</span><strong>{usuarioAdminSeleccionado.specialties || "No registrado"}</strong></div>
-                    <div><span>Zona</span><strong>{usuarioAdminSeleccionado.serviceZone || "No registrado"}</strong></div>
-                    <div><span>Disponibilidad</span><strong>{usuarioAdminSeleccionado.availability || "No registrado"}</strong></div>
+                  <div className="chat-input-area">
+                    <input type="text" placeholder="Escribe al técnico o admin..." autoFocus value={chatTexto}
+                      onChange={(e) => setChatTexto(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviarMensajeChat(); } }}/>
+                    <button type="button" onClick={enviarMensajeChat} disabled={chatCargando || !chatTexto.trim()}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+                    </button>
                   </div>
                 </div>
-
-                <div className="profile-form">
-                  <h3>Acciones administrativas</h3>
-                  <button className="btn-pro success full" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "APROBADO")}>Activar cuenta</button>
-                  <button className="btn-pro secondary full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "INACTIVO")}>Desactivar cuenta</button>
-                  <button className="btn-pro danger full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "BANEADO", "¿Seguro que deseas banear esta cuenta?")}>Banear cuenta</button>
-                  <button className="btn-pro danger full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "ELIMINADO", "¿Seguro que deseas eliminar esta cuenta?")}>Eliminar cuenta</button>
-                </div>
               </div>
-            </section>
-          )}
-
-          {vistaDashboard === "pendientes" && usuarioActual.role === "ADMIN" && (
-            <section className="content-pro">
-              <div className="page-heading">
-                <div>
-                  <span className="section-badge">Revisión administrativa</span>
-
-                  <h1>Técnicos pendientes</h1>
-
-                  <p>Aprueba o rechaza solicitudes de técnicos registrados.</p>
-                </div>
-
-                <button
-                  className="btn-pro primary"
-                  type="button"
-                  onClick={cargarTecnicosPendientes}
-                >
-                  Actualizar
-                </button>
-              </div>
-
-              <div className="technicians-grid-pro">
-                {tecnicosPendientes.length === 0 && (
-                  <div className="empty-state-pro">
-                    <div>✅</div>
-
-                    <h3>No hay técnicos pendientes</h3>
-
-                    <p>Cuando un técnico se registre aparecerá aquí.</p>
-                  </div>
-                )}
-
-                {tecnicosPendientes.map((tecnico) => (
-                  <div className="technician-pro-card" key={tecnico.id}>
-                    <div className="technician-head">
-                      <div className="avatar-tech">
-                        {tecnico.name ? tecnico.name.charAt(0).toUpperCase() : "T"}
-                      </div>
-
-                      <div>
-                        <h3>{tecnico.name}</h3>
-                        <span>Pendiente</span>
-                      </div>
-                    </div>
-
-                    <div className="tech-info">
-                      <p>
-                        <strong>DNI:</strong> {tecnico.dni}
-                      </p>
-
-                      <p>
-                        <strong>Correo:</strong> {tecnico.email}
-                      </p>
-
-                      <p>
-                        <strong>Teléfono:</strong> {tecnico.phone}
-                      </p>
-
-                      <p>
-                        <strong>Especialidades:</strong> {tecnico.specialties}
-                      </p>
-
-                      <p>
-                        <strong>Zona:</strong> {tecnico.serviceZone}
-                      </p>
-
-                      <p>
-                        <strong>Disponibilidad:</strong> {tecnico.availability}
-                      </p>
-                    </div>
-
-                    <div className="approval-actions">
-                      <button
-                        className="btn-pro success"
-                        type="button"
-                        onClick={() => aprobarTecnico(tecnico.id)}
-                      >
-                        Aprobar
-                      </button>
-
-                      <button
-                        className="btn-pro danger"
-                        type="button"
-                        onClick={() => rechazarTecnico(tecnico.id)}
-                      >
-                        Rechazar
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {mensaje && (
-            <div className={tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"}>
-              {mensaje}
             </div>
-          )}
-        </main>
-      </div>
-    );
+          </section>
+        )}
+
+        {/* ══ USUARIOS ADMIN ══ */}
+        {vistaDashboard === "usuariosAdmin" && usuarioActual.role === "ADMIN" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Administración</span><h1>Gestión de usuarios</h1><p>Visualiza, activa, desactiva o banea cuentas.</p></div>
+              <button className="btn-pro primary" type="button" onClick={() => cargarUsuariosAdmin()}>Actualizar</button>
+            </div>
+            <div className="search-panel-pro admin-users-filter">
+              <div className="form-row-pro"><label>Buscar</label><input type="text" placeholder="Nombre, correo, DNI..." value={filtroUsuarioAdmin} onChange={(e) => setFiltroUsuarioAdmin(e.target.value)}/></div>
+              <div className="form-row-pro"><label>Rol</label><select value={filtroRolAdmin} onChange={(e) => setFiltroRolAdmin(e.target.value)}><option value="TODOS">Todos</option><option value="CLIENTE">Clientes</option><option value="TECNICO">Técnicos</option><option value="ADMIN">Admins</option></select></div>
+              <div className="form-row-pro"><label>Estado</label><select value={filtroEstadoAdmin} onChange={(e) => setFiltroEstadoAdmin(e.target.value)}><option value="TODOS">Todos</option><option value="APROBADO">Activo</option><option value="PENDIENTE">Pendiente</option><option value="INACTIVO">Inactivo</option><option value="BANEADO">Baneado</option></select></div>
+              <button className="btn-pro primary" type="button" onClick={() => cargarUsuariosAdmin(filtroRolAdmin,filtroEstadoAdmin,filtroUsuarioAdmin)}>Filtrar</button>
+            </div>
+            <div className="users-table-pro">
+              {usuariosAdmin.length === 0 && <div className="empty-state-pro"><div>👥</div><h3>Sin usuarios</h3><p>Cambia los filtros para ver resultados.</p></div>}
+              {usuariosAdmin.map((user) => (
+                <div className="user-admin-row" key={user.id}>
+                  <div className="user-admin-main">
+                    {user.profileImageUrl ? <img className="avatar-img" src={user.profileImageUrl} alt="Usuario"/> : <div className="avatar-user">{user.name?.charAt(0).toUpperCase()}</div>}
+                    <div><h3>{user.name}</h3><p>{user.email}</p><small>DNI: {user.dni} | Tel: {user.phone}</small></div>
+                  </div>
+                  <div className="user-admin-tags"><span>{user.role}</span><span className={`estado-badge estado-${user.accountStatus}`}>{user.accountStatus}</span></div>
+                  <div className="user-admin-actions">
+                    <button className="btn-pro secondary" type="button" onClick={() => verPerfilUsuarioAdmin(user.id)}>Ver perfil</button>
+                    <button className="btn-pro success" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id,"APROBADO")}>Activar</button>
+                    <button className="btn-pro secondary" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id,"INACTIVO")}>Desactivar</button>
+                    <button className="btn-pro danger" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id,"BANEADO","¿Banear esta cuenta?")}>Banear</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ══ DETALLE USUARIO ADMIN ══ */}
+        {vistaDashboard === "detalleUsuarioAdmin" && usuarioActual.role === "ADMIN" && usuarioAdminSeleccionado && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Perfil de usuario</span><h1>{usuarioAdminSeleccionado.name}</h1></div>
+              <button className="btn-pro secondary" type="button" onClick={() => setVistaDashboard("usuariosAdmin")}>← Volver</button>
+            </div>
+            <div className="profile-layout">
+              <div className="profile-summary">
+                {usuarioAdminSeleccionado.profileImageUrl ? <img className="profile-photo-large" src={usuarioAdminSeleccionado.profileImageUrl} alt="Usuario"/> : <div className="profile-avatar-large">{usuarioAdminSeleccionado.name?.charAt(0).toUpperCase()}</div>}
+                <h3>{usuarioAdminSeleccionado.name}</h3><p>{usuarioAdminSeleccionado.email}</p>
+                <div className="profile-info-list">
+                  <div><span>DNI</span><strong>{usuarioAdminSeleccionado.dni}</strong></div>
+                  <div><span>Teléfono</span><strong>{usuarioAdminSeleccionado.phone}</strong></div>
+                  <div><span>Rol</span><strong>{usuarioAdminSeleccionado.role}</strong></div>
+                  <div><span>Estado</span><strong>{usuarioAdminSeleccionado.accountStatus}</strong></div>
+                  <div><span>Especialidades</span><strong>{usuarioAdminSeleccionado.specialties || "—"}</strong></div>
+                  <div><span>Zona</span><strong>{usuarioAdminSeleccionado.serviceZone || "—"}</strong></div>
+                </div>
+              </div>
+              <div className="profile-form">
+                <h3>Acciones administrativas</h3>
+                <button className="btn-pro success full" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id,"APROBADO")}>Activar cuenta</button>
+                <button className="btn-pro secondary full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id,"INACTIVO")}>Desactivar cuenta</button>
+                <button className="btn-pro danger full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id,"BANEADO","¿Banear esta cuenta?")}>Banear cuenta</button>
+                <button className="btn-pro danger full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id,"ELIMINADO","¿Eliminar esta cuenta?")}>Eliminar cuenta</button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ══ PENDIENTES ══ */}
+        {vistaDashboard === "pendientes" && usuarioActual.role === "ADMIN" && (
+          <section className="content-pro">
+            <div className="page-heading">
+              <div><span className="section-badge">Revisión</span><h1>Técnicos pendientes</h1><p>Aprueba o rechaza solicitudes de técnicos registrados.</p></div>
+              <button className="btn-pro primary" type="button" onClick={cargarTecnicosPendientes}>Actualizar</button>
+            </div>
+            <div className="technicians-grid-pro">
+              {tecnicosPendientes.length === 0 && <div className="empty-state-pro"><div>✅</div><h3>Sin pendientes</h3><p>Cuando un técnico se registre aparecerá aquí.</p></div>}
+              {tecnicosPendientes.map((tecnico) => (
+                <div className="technician-pro-card" key={tecnico.id}>
+                  <div className="technician-head">
+                    <div className="avatar-tech">{tecnico.name?.charAt(0).toUpperCase()}</div>
+                    <div><h3>{tecnico.name}</h3><span style={{color:"var(--amber)",fontWeight:700,fontSize:12}}>Pendiente</span></div>
+                  </div>
+                  <div className="tech-info">
+                    <p><strong>DNI:</strong> {tecnico.dni}</p>
+                    <p><strong>Correo:</strong> {tecnico.email}</p>
+                    <p><strong>Teléfono:</strong> {tecnico.phone}</p>
+                    <p><strong>Especialidades:</strong> {tecnico.specialties}</p>
+                    <p><strong>Zona:</strong> {tecnico.serviceZone}</p>
+                  </div>
+                  <div className="approval-actions">
+                    <button className="btn-pro success" type="button" onClick={() => aprobarTecnico(tecnico.id)}>Aprobar</button>
+                    <button className="btn-pro danger" type="button" onClick={() => rechazarTecnico(tecnico.id)}>Rechazar</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* TOAST */}
+        {mensaje && (
+          <div className={tipoMensaje === "exito" ? "mensaje exito" : "mensaje error"}
+            style={{position:"fixed",bottom:24,right:24,maxWidth:380,zIndex:9999}}>
+            {mensaje}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+
   }
 
   return (
