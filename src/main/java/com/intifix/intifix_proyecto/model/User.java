@@ -59,6 +59,12 @@ public class User {
     @Column(length = 300)
     private String availability;
 
+    @Column(length = 250)
+    private String address;
+
+    @Column(length = 500)
+    private String profileImageUrl;
+
     @Column(name = "failed_attempts", nullable = false)
     private Integer failedAttempts = 0;
 
@@ -128,6 +134,14 @@ public class User {
 
     public String getAvailability() {
         return availability;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public String getProfileImageUrl() {
+        return profileImageUrl;
     }
 
     public Integer getFailedAttempts() {
@@ -200,6 +214,14 @@ public class User {
 
     public void setAvailability(String availability) {
         this.availability = availability;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public void setProfileImageUrl(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
     }
 
     public void setFailedAttempts(Integer failedAttempts) {

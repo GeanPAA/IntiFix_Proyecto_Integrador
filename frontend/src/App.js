@@ -5,6 +5,8 @@ const API_URL = "http://localhost:8081/api/auth";
 const ADMIN_URL = "http://localhost:8081/api/admin";
 const PROFILE_URL = "http://localhost:8081/api/profile";
 const TECHNICIANS_URL = "http://localhost:8081/api/technicians";
+const SOLICITUDES_URL = "http://localhost:8081/api/solicitudes";
+const ADMIN_USERS_URL = "http://localhost:8081/api/admin/users";
 const CODE_SECONDS = 300;
 
 const SPECIALTIES = [
@@ -62,10 +64,38 @@ function App() {
   const [perfil, setPerfil] = useState(null);
   const [perfilForm, setPerfilForm] = useState({
     name: "",
+    email: "",
     phone: "",
+    address: "",
+    profileImageUrl: "",
     specialties: "",
     serviceZone: "",
     availability: "",
+  });
+
+  const [menuUsuarioAbierto, setMenuUsuarioAbierto] = useState(false);
+  const [tecnicoSeleccionado, setTecnicoSeleccionado] = useState(null);
+  const [usuariosAdmin, setUsuariosAdmin] = useState([]);
+  const [usuarioAdminSeleccionado, setUsuarioAdminSeleccionado] = useState(null);
+  const [filtroUsuarioAdmin, setFiltroUsuarioAdmin] = useState("");
+  const [filtroRolAdmin, setFiltroRolAdmin] = useState("TODOS");
+  const [filtroEstadoAdmin, setFiltroEstadoAdmin] = useState("TODOS");
+
+  const [solicitudes, setSolicitudes] = useState([]);
+  const [solicitudSeleccionada, setSolicitudSeleccionada] = useState(null);
+  const [filtroEstadoSolicitud, setFiltroEstadoSolicitud] = useState("TODOS");
+  const [archivoEvidencia, setArchivoEvidencia] = useState(null);
+  const [codigoSeguimiento, setCodigoSeguimiento] = useState("");
+  const [resultadoSeguimiento, setResultadoSeguimiento] = useState(null);
+  const [estadoNuevoSolicitud, setEstadoNuevoSolicitud] = useState("EN_REVISION");
+  const [comentarioEstado, setComentarioEstado] = useState("");
+
+  const [solicitudForm, setSolicitudForm] = useState({
+    equipo: "",
+    titulo: "",
+    descripcion: "",
+    modalidad: "TALLER",
+    direccion: "",
   });
 
   const [emailEstado, setEmailEstado] = useState({ texto: "", tipo: "" });
@@ -810,7 +840,12 @@ function App() {
     setPerfil(null);
     setTecnicosAprobados([]);
     setTecnicosPendientes([]);
+    setSolicitudes([]);
+    setSolicitudSeleccionada(null);
+    setResultadoSeguimiento(null);
     setFiltroTecnico("");
+    setFiltroEstadoSolicitud("TODOS");
+    setCodigoSeguimiento("");
     setVistaDashboard("inicio");
     limpiarTodo();
     setModo("login");
@@ -908,7 +943,10 @@ function App() {
       setPerfil(data);
       setPerfilForm({
         name: data.name || "",
+        email: data.email || "",
         phone: data.phone || "",
+        address: data.address || "",
+        profileImageUrl: data.profileImageUrl || "",
         specialties: data.specialties || "",
         serviceZone: data.serviceZone || "",
         availability: data.availability || "",
@@ -929,6 +967,10 @@ function App() {
         throw new Error("Ingresa un nombre válido.");
       }
 
+      if (!perfilForm.email.includes("@")) {
+        throw new Error("Ingresa un correo válido.");
+      }
+
       if (!/^9[0-9]{8}$/.test(perfilForm.phone.trim())) {
         throw new Error("El teléfono debe tener 9 dígitos y empezar con 9.");
       }
@@ -941,7 +983,10 @@ function App() {
         },
         body: JSON.stringify({
           name: perfilForm.name.trim(),
+          email: perfilForm.email.trim().toLowerCase(),
           phone: perfilForm.phone.trim(),
+          address: perfilForm.address.trim(),
+          profileImageUrl: perfilForm.profileImageUrl.trim(),
           specialties: perfilForm.specialties.trim(),
           serviceZone: perfilForm.serviceZone.trim(),
           availability: perfilForm.availability.trim(),
@@ -958,6 +1003,324 @@ function App() {
 
       mostrarMensaje("✅ Perfil actualizado correctamente.", "exito");
       cargarPerfil();
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+
+  const eliminarMiCuenta = async () => {
+    const confirmar = window.confirm(
+      "¿Seguro que deseas desactivar tu cuenta? Se cerrará tu sesión automáticamente."
+    );
+
+    if (!confirmar) return;
+
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      const respuesta = await fetch(PROFILE_URL, {
+        method: "DELETE",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo desactivar la cuenta."
+        );
+      }
+
+      alert("Cuenta desactivada correctamente.");
+      cerrarSesion();
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+
+  const cargarMisSolicitudes = async (estado = filtroEstadoSolicitud) => {
+    try {
+      const query = estado && estado !== "TODOS" ? `?estado=${estado}` : "";
+
+      const respuesta = await fetch(`${SOLICITUDES_URL}/mis-solicitudes${query}`, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudieron cargar las solicitudes."
+        );
+      }
+
+      setSolicitudes(Array.isArray(data) ? data : []);
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const cargarSolicitudesGestion = async (estado = filtroEstadoSolicitud) => {
+    try {
+      const query = estado && estado !== "TODOS" ? `?estado=${estado}` : "";
+
+      const respuesta = await fetch(`${SOLICITUDES_URL}${query}`, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudieron cargar las solicitudes."
+        );
+      }
+
+      setSolicitudes(Array.isArray(data) ? data : []);
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const registrarSolicitud = async (e) => {
+    e.preventDefault();
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      if (solicitudForm.equipo.trim().length < 3) {
+        throw new Error("Ingresa el equipo correctamente.");
+      }
+
+      if (solicitudForm.titulo.trim().length < 5) {
+        throw new Error("Ingresa un título válido para la falla.");
+      }
+
+      if (solicitudForm.descripcion.trim().length < 10) {
+        throw new Error("La descripción debe tener mínimo 10 caracteres.");
+      }
+
+      if (
+        solicitudForm.modalidad === "DOMICILIO" &&
+        solicitudForm.direccion.trim().length < 5
+      ) {
+        throw new Error("La dirección es obligatoria para atención a domicilio.");
+      }
+
+      const respuesta = await fetch(SOLICITUDES_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          equipo: solicitudForm.equipo.trim(),
+          titulo: solicitudForm.titulo.trim(),
+          descripcion: solicitudForm.descripcion.trim(),
+          modalidad: solicitudForm.modalidad,
+          direccion:
+            solicitudForm.modalidad === "DOMICILIO"
+              ? solicitudForm.direccion.trim()
+              : "",
+        }),
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo registrar la solicitud."
+        );
+      }
+
+      mostrarMensaje(
+        `✅ Solicitud registrada correctamente. Código: ${data.codigo}`,
+        "exito"
+      );
+
+      setSolicitudForm({
+        equipo: "",
+        titulo: "",
+        descripcion: "",
+        modalidad: "TALLER",
+        direccion: "",
+      });
+
+      setCodigoSeguimiento(data.codigo || "");
+      setVistaDashboard("historial");
+      await cargarMisSolicitudes("TODOS");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const verDetalleSolicitud = async (id) => {
+    try {
+      const respuesta = await fetch(`${SOLICITUDES_URL}/${id}`, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo cargar el detalle."
+        );
+      }
+
+      setSolicitudSeleccionada(data);
+      setEstadoNuevoSolicitud(data.estado || "EN_REVISION");
+      setComentarioEstado("");
+      setVistaDashboard("detalleSolicitud");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const subirEvidencia = async (e) => {
+    e.preventDefault();
+
+    if (!solicitudSeleccionada) {
+      mostrarMensaje("❌ Selecciona una solicitud.", "error");
+      return;
+    }
+
+    if (!archivoEvidencia) {
+      mostrarMensaje("❌ Selecciona una imagen.", "error");
+      return;
+    }
+
+    setCargando(true);
+
+    try {
+      const formDataArchivo = new FormData();
+      formDataArchivo.append("archivo", archivoEvidencia);
+
+      const respuesta = await fetch(
+        `${SOLICITUDES_URL}/${solicitudSeleccionada.id}/evidencias`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+          },
+          body: formDataArchivo,
+        }
+      );
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo subir la evidencia."
+        );
+      }
+
+      mostrarMensaje("✅ Evidencia subida correctamente.", "exito");
+      setArchivoEvidencia(null);
+      setSolicitudSeleccionada(data);
+      await verDetalleSolicitud(solicitudSeleccionada.id);
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const consultarEstadoSolicitud = async (e) => {
+    e.preventDefault();
+    setResultadoSeguimiento(null);
+
+    try {
+      if (codigoSeguimiento.trim().length < 5) {
+        throw new Error("Ingresa un código válido.");
+      }
+
+      const respuesta = await fetch(
+        `${SOLICITUDES_URL}/codigo/${codigoSeguimiento.trim().toUpperCase()}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+          },
+        }
+      );
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se encontró la solicitud."
+        );
+      }
+
+      setResultadoSeguimiento(data);
+      mostrarMensaje("✅ Estado consultado correctamente.", "exito");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const actualizarEstadoSolicitud = async (e) => {
+    e.preventDefault();
+
+    if (!solicitudSeleccionada) {
+      mostrarMensaje("❌ Selecciona una solicitud.", "error");
+      return;
+    }
+
+    setCargando(true);
+    setMensaje("");
+    setTipoMensaje("");
+
+    try {
+      const respuesta = await fetch(
+        `${SOLICITUDES_URL}/${solicitudSeleccionada.id}/estado`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            estadoNuevo: estadoNuevoSolicitud,
+            comentario: comentarioEstado.trim(),
+          }),
+        }
+      );
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(
+          typeof data === "string" ? data : "No se pudo actualizar el estado."
+        );
+      }
+
+      mostrarMensaje("✅ Estado actualizado correctamente.", "exito");
+      setSolicitudSeleccionada(data);
+      setComentarioEstado("");
     } catch (error) {
       mostrarMensaje("❌ " + error.message, "error");
     } finally {
@@ -1008,6 +1371,105 @@ function App() {
     } finally {
       setCargando(false);
     }
+  };
+
+
+  const cargarUsuariosAdmin = async (
+    rol = filtroRolAdmin,
+    estado = filtroEstadoAdmin,
+    busqueda = filtroUsuarioAdmin
+  ) => {
+    try {
+      const params = new URLSearchParams();
+      if (rol && rol !== "TODOS") params.append("role", rol);
+      if (estado && estado !== "TODOS") params.append("estado", estado);
+      if (busqueda && busqueda.trim()) params.append("buscar", busqueda.trim());
+
+      const respuesta = await fetch(`${ADMIN_USERS_URL}?${params.toString()}`, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(typeof data === "string" ? data : "No se pudieron cargar los usuarios.");
+      }
+
+      setUsuariosAdmin(Array.isArray(data) ? data : []);
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const verPerfilUsuarioAdmin = async (id) => {
+    try {
+      const respuesta = await fetch(`${ADMIN_USERS_URL}/${id}`, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(typeof data === "string" ? data : "No se pudo cargar el usuario.");
+      }
+
+      setUsuarioAdminSeleccionado(data);
+      setVistaDashboard("detalleUsuarioAdmin");
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const cambiarEstadoUsuarioAdmin = async (id, estado, textoConfirmacion) => {
+    if (textoConfirmacion && !window.confirm(textoConfirmacion)) return;
+
+    const rutasPorEstado = {
+      APROBADO: "activar",
+      INACTIVO: "desactivar",
+      BANEADO: "banear",
+      ELIMINADO: "eliminar",
+    };
+
+    const accion = rutasPorEstado[estado];
+
+    if (!accion) {
+      mostrarMensaje("❌ Estado no válido.", "error");
+      return;
+    }
+
+    try {
+      const respuesta = await fetch(`${ADMIN_USERS_URL}/${id}/${accion}`, {
+        method: "PUT",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      const data = await leerRespuesta(respuesta);
+
+      if (!respuesta.ok) {
+        throw new Error(typeof data === "string" ? data : "No se pudo actualizar el usuario.");
+      }
+
+      mostrarMensaje("✅ Usuario actualizado correctamente.", "exito");
+      await cargarUsuariosAdmin();
+      if (usuarioAdminSeleccionado?.id === id) {
+        await verPerfilUsuarioAdmin(id);
+      }
+    } catch (error) {
+      mostrarMensaje("❌ " + error.message, "error");
+    }
+  };
+
+  const verDetalleTecnico = (tecnico) => {
+    setTecnicoSeleccionado(tecnico);
+    setVistaDashboard("detalleTecnico");
   };
 
   const tecnicosFiltrados = tecnicosAprobados.filter((tecnico) => {
@@ -1074,17 +1536,87 @@ function App() {
               </button>
             )}
 
-            {usuarioActual.role === "ADMIN" && (
+            {usuarioActual.role === "CLIENTE" && (
+              <>
+                <button
+                  className={vistaDashboard === "nuevaSolicitud" ? "active" : ""}
+                  onClick={() => setVistaDashboard("nuevaSolicitud")}
+                >
+                  <span>📝</span>
+                  Nueva solicitud
+                </button>
+
+                <button
+                  className={vistaDashboard === "historial" ? "active" : ""}
+                  onClick={() => {
+                    setVistaDashboard("historial");
+                    cargarMisSolicitudes();
+                  }}
+                >
+                  <span>📋</span>
+                  Historial
+                </button>
+
+                <button
+                  className={vistaDashboard === "seguimiento" ? "active" : ""}
+                  onClick={() => setVistaDashboard("seguimiento")}
+                >
+                  <span>🔎</span>
+                  Seguimiento
+                </button>
+              </>
+            )}
+
+            {usuarioActual.role === "TECNICO" && (
               <button
-                className={vistaDashboard === "pendientes" ? "active" : ""}
+                className={vistaDashboard === "solicitudesGestion" ? "active" : ""}
                 onClick={() => {
-                  setVistaDashboard("pendientes");
-                  cargarTecnicosPendientes();
+                  setVistaDashboard("solicitudesGestion");
+                  cargarSolicitudesGestion();
                 }}
               >
-                <span>✅</span>
-                Aprobaciones
+                <span>📋</span>
+                Solicitudes
               </button>
+            )}
+
+            {usuarioActual.role === "ADMIN" && (
+              <button
+                className={vistaDashboard === "solicitudesGestion" ? "active" : ""}
+                onClick={() => {
+                  setVistaDashboard("solicitudesGestion");
+                  cargarSolicitudesGestion();
+                }}
+              >
+                <span>📋</span>
+                Solicitudes
+              </button>
+            )}
+
+            {usuarioActual.role === "ADMIN" && (
+              <>
+                <button
+                  className={vistaDashboard === "usuariosAdmin" || vistaDashboard === "detalleUsuarioAdmin" ? "active" : ""}
+                  onClick={() => {
+                    setVistaDashboard("usuariosAdmin");
+                    cargarUsuariosAdmin();
+                  }}
+                >
+                  <span>👥</span>
+                  Usuarios
+                </button>
+
+                <button
+                  className={vistaDashboard === "pendientes" ? "active" : ""}
+                  onClick={() => {
+                    setVistaDashboard("pendientes");
+                    cargarTecnicosPendientes();
+                  }}
+                >
+                  <span>✅</span>
+                  Aprobaciones
+                </button>
+              </>
             )}
           </nav>
 
@@ -1110,20 +1642,41 @@ function App() {
               </h2>
             </div>
 
-            <div className="topbar-actions">
-              <div className="search-topbar">
-                <span>🔍</span>
-                <input type="text" placeholder="Buscar en IntiFix..." />
-              </div>
-
-              <div className="user-chip">
-                <div className="avatar-user">{inicialUsuario}</div>
+            <div className="topbar-actions user-menu-area">
+              <button
+                className="user-chip user-chip-button"
+                type="button"
+                onClick={() => setMenuUsuarioAbierto(!menuUsuarioAbierto)}
+              >
+                {perfil?.profileImageUrl ? (
+                  <img className="avatar-img" src={perfil.profileImageUrl} alt="Perfil" />
+                ) : (
+                  <div className="avatar-user">{inicialUsuario}</div>
+                )}
 
                 <div>
                   <strong>{usuarioActual.name}</strong>
                   <small>{usuarioActual.role}</small>
                 </div>
-              </div>
+              </button>
+
+              {menuUsuarioAbierto && (
+                <div className="user-dropdown">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVistaDashboard("perfil");
+                      setMenuUsuarioAbierto(false);
+                      cargarPerfil();
+                    }}
+                  >
+                    👤 Mi perfil
+                  </button>
+                  <button type="button" onClick={cerrarSesion}>
+                    🚪 Cerrar sesión
+                  </button>
+                </div>
+              )}
             </div>
           </header>
 
@@ -1151,12 +1704,9 @@ function App() {
 
                     <button
                       className="btn-pro secondary"
-                      onClick={() => {
-                        setVistaDashboard("perfil");
-                        cargarPerfil();
-                      }}
+                      onClick={() => setVistaDashboard("nuevaSolicitud")}
                     >
-                      Ver mi perfil
+                      Registrar solicitud
                     </button>
                   </div>
                 </div>
@@ -1201,36 +1751,40 @@ function App() {
                 <div className="feature-card">
                   <div className="feature-icon">🔎</div>
 
-                  <h3>Solicitar servicio</h3>
+                  <h3>Registrar reparación</h3>
 
                   <p>
-                    Busca técnicos disponibles según especialidad, ubicación y
-                    disponibilidad.
+                    Reporta una falla, elige modalidad de atención y genera un
+                    código único para hacer seguimiento.
                   </p>
 
                   <button
                     className="btn-pro primary"
-                    onClick={() => {
-                      setVistaDashboard("tecnicos");
-                      cargarTecnicosAprobados();
-                    }}
+                    onClick={() => setVistaDashboard("nuevaSolicitud")}
                   >
-                    Ver técnicos aprobados
+                    Nueva solicitud
                   </button>
                 </div>
 
                 <div className="feature-card">
                   <div className="feature-icon">📋</div>
 
-                  <h3>Mis actividades</h3>
+                  <h3>Mis solicitudes</h3>
 
                   <p>
-                    Próximamente podrás revisar solicitudes, historial y servicios
-                    pendientes.
+                    Revisa tu historial de servicios, evidencias adjuntas y el
+                    estado actual de cada reparación.
                   </p>
 
-                  <button className="btn-pro disabled" type="button">
-                    Próximamente
+                  <button
+                    className="btn-pro secondary"
+                    type="button"
+                    onClick={() => {
+                      setVistaDashboard("historial");
+                      cargarMisSolicitudes();
+                    }}
+                  >
+                    Ver historial
                   </button>
                 </div>
               </div>
@@ -1278,10 +1832,17 @@ function App() {
 
                   <h3>Servicios disponibles</h3>
 
-                  <p>Consulta solicitudes relacionadas con tus especialidades.</p>
+                  <p>Consulta solicitudes registradas y actualiza sus estados.</p>
 
-                  <button className="btn-pro disabled" type="button">
-                    Próximamente
+                  <button
+                    className="btn-pro primary"
+                    type="button"
+                    onClick={() => {
+                      setVistaDashboard("solicitudesGestion");
+                      cargarSolicitudesGestion();
+                    }}
+                  >
+                    Ver solicitudes
                   </button>
                 </div>
 
@@ -1328,6 +1889,16 @@ function App() {
                       }}
                     >
                       Revisar aprobaciones
+                    </button>
+
+                    <button
+                      className="btn-pro secondary"
+                      onClick={() => {
+                        setVistaDashboard("solicitudesGestion");
+                        cargarSolicitudesGestion();
+                      }}
+                    >
+                      Gestionar solicitudes
                     </button>
                   </div>
                 </div>
@@ -1377,10 +1948,8 @@ function App() {
               <div className="page-heading">
                 <div>
                   <span className="section-badge">Cuenta</span>
-
                   <h1>Mi perfil</h1>
-
-                  <p>Gestiona tu información personal dentro de IntiFix.</p>
+                  <p>Actualiza tu información personal, correo, dirección e imagen.</p>
                 </div>
               </div>
 
@@ -1390,19 +1959,26 @@ function App() {
 
                   <div className="form-row-pro">
                     <label>Nombre completo</label>
-
                     <input
                       type="text"
                       value={perfilForm.name}
+                      onChange={(e) => setPerfilForm({ ...perfilForm, name: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-row-pro">
+                    <label>Correo electrónico</label>
+                    <input
+                      type="email"
+                      value={perfilForm.email}
                       onChange={(e) =>
-                        setPerfilForm({ ...perfilForm, name: e.target.value })
+                        setPerfilForm({ ...perfilForm, email: e.target.value.trim().toLowerCase() })
                       }
                     />
                   </div>
 
                   <div className="form-row-pro">
                     <label>Teléfono</label>
-
                     <input
                       type="text"
                       value={perfilForm.phone}
@@ -1415,69 +1991,81 @@ function App() {
                     />
                   </div>
 
+                  <div className="form-row-pro">
+                    <label>Dirección</label>
+                    <input
+                      type="text"
+                      placeholder="Ejemplo: Av. Los Olivos 123, Lima"
+                      value={perfilForm.address}
+                      onChange={(e) => setPerfilForm({ ...perfilForm, address: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-row-pro">
+                    <label>Imagen de perfil URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../foto.png"
+                      value={perfilForm.profileImageUrl}
+                      onChange={(e) =>
+                        setPerfilForm({ ...perfilForm, profileImageUrl: e.target.value })
+                      }
+                    />
+                    <small className="ayuda-campo info-texto">
+                      Pega una URL de imagen. Luego se verá en tu perfil y avatar superior.
+                    </small>
+                  </div>
+
                   {usuarioActual.role === "TECNICO" && (
                     <>
                       <div className="form-row-pro">
                         <label>Especialidades</label>
-
                         <input
                           type="text"
                           value={perfilForm.specialties}
                           onChange={(e) =>
-                            setPerfilForm({
-                              ...perfilForm,
-                              specialties: e.target.value,
-                            })
+                            setPerfilForm({ ...perfilForm, specialties: e.target.value })
                           }
                         />
                       </div>
 
                       <div className="form-row-pro">
                         <label>Zona de atención</label>
-
                         <input
                           type="text"
                           value={perfilForm.serviceZone}
                           onChange={(e) =>
-                            setPerfilForm({
-                              ...perfilForm,
-                              serviceZone: e.target.value,
-                            })
+                            setPerfilForm({ ...perfilForm, serviceZone: e.target.value })
                           }
                         />
                       </div>
 
                       <div className="form-row-pro">
                         <label>Disponibilidad</label>
-
                         <input
                           type="text"
                           value={perfilForm.availability}
                           onChange={(e) =>
-                            setPerfilForm({
-                              ...perfilForm,
-                              availability: e.target.value,
-                            })
+                            setPerfilForm({ ...perfilForm, availability: e.target.value })
                           }
                         />
                       </div>
                     </>
                   )}
 
-                  <button
-                    className="btn-pro primary full"
-                    type="submit"
-                    disabled={cargando}
-                  >
+                  <button className="btn-pro primary full" type="submit" disabled={cargando}>
                     {cargando ? "Guardando..." : "Guardar cambios"}
                   </button>
                 </form>
 
                 <div className="profile-summary">
-                  <div className="profile-avatar-large">{inicialUsuario}</div>
+                  {perfil?.profileImageUrl ? (
+                    <img className="profile-photo-large" src={perfil.profileImageUrl} alt="Perfil" />
+                  ) : (
+                    <div className="profile-avatar-large">{inicialUsuario}</div>
+                  )}
 
                   <h3>{perfil?.name || usuarioActual.name}</h3>
-
                   <p>{perfil?.email || usuarioActual.email}</p>
 
                   <div className="profile-info-list">
@@ -1485,10 +2073,17 @@ function App() {
                       <span>Teléfono</span>
                       <strong>{perfil?.phone || "No registrado"}</strong>
                     </div>
-
+                    <div>
+                      <span>Dirección</span>
+                      <strong>{perfil?.address || "No registrado"}</strong>
+                    </div>
                     <div>
                       <span>Rol</span>
                       <strong>{perfil?.role || usuarioActual.role}</strong>
+                    </div>
+                    <div>
+                      <span>Estado</span>
+                      <strong>{perfil?.accountStatus || "APROBADO"}</strong>
                     </div>
 
                     {usuarioActual.role === "TECNICO" && (
@@ -1497,12 +2092,10 @@ function App() {
                           <span>Especialidades</span>
                           <strong>{perfil?.specialties || "No registrado"}</strong>
                         </div>
-
                         <div>
                           <span>Zona</span>
                           <strong>{perfil?.serviceZone || "No registrado"}</strong>
                         </div>
-
                         <div>
                           <span>Disponibilidad</span>
                           <strong>{perfil?.availability || "No registrado"}</strong>
@@ -1511,18 +2104,26 @@ function App() {
                     )}
                   </div>
 
-                  <button
-                    className="btn-pro secondary full"
-                    type="button"
-                    onClick={() => cargarPerfil()}
-                  >
+                  <button className="btn-pro secondary full" type="button" onClick={() => cargarPerfil()}>
                     Actualizar perfil
                   </button>
 
-                  <div className="security-note">
-                    <strong>Nota:</strong> La desactivación de cuentas debe
-                    manejarla el administrador para evitar bajas accidentales.
-                  </div>
+                  {usuarioActual.role !== "ADMIN" && (
+                    <button
+                      className="btn-pro danger full danger-margin"
+                      type="button"
+                      onClick={eliminarMiCuenta}
+                      disabled={cargando}
+                    >
+                      Eliminar / desactivar mi cuenta
+                    </button>
+                  )}
+
+                  {usuarioActual.role === "ADMIN" && (
+                    <div className="security-note">
+                      <strong>Administrador:</strong> Puedes gestionar clientes y técnicos desde el módulo Usuarios.
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
@@ -1608,11 +2209,754 @@ function App() {
                       </p>
                     </div>
 
-                    <button className="btn-pro primary full" type="button">
+                    <button
+                      className="btn-pro primary full"
+                      type="button"
+                      onClick={() => verDetalleTecnico(tecnico)}
+                    >
                       Ver detalles
                     </button>
                   </div>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "detalleTecnico" && tecnicoSeleccionado && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Perfil técnico</span>
+                  <h1>{tecnicoSeleccionado.name}</h1>
+                  <p>Información profesional del técnico seleccionado.</p>
+                </div>
+                <button className="btn-pro secondary" type="button" onClick={() => setVistaDashboard("tecnicos")}>
+                  Volver
+                </button>
+              </div>
+
+              <div className="profile-layout">
+                <div className="profile-summary tecnico-detail-card">
+                  {tecnicoSeleccionado.profileImageUrl ? (
+                    <img className="profile-photo-large" src={tecnicoSeleccionado.profileImageUrl} alt="Técnico" />
+                  ) : (
+                    <div className="profile-avatar-large">
+                      {tecnicoSeleccionado.name ? tecnicoSeleccionado.name.charAt(0).toUpperCase() : "T"}
+                    </div>
+                  )}
+                  <h3>{tecnicoSeleccionado.name}</h3>
+                  <p>{tecnicoSeleccionado.email}</p>
+
+                  <div className="profile-info-list">
+                    <div><span>Teléfono</span><strong>{tecnicoSeleccionado.phone || "No registrado"}</strong></div>
+                    <div><span>Especialidades</span><strong>{tecnicoSeleccionado.specialties || "No registrado"}</strong></div>
+                    <div><span>Zona</span><strong>{tecnicoSeleccionado.serviceZone || "No registrado"}</strong></div>
+                    <div><span>Disponibilidad</span><strong>{tecnicoSeleccionado.availability || "No registrado"}</strong></div>
+                    <div><span>Dirección</span><strong>{tecnicoSeleccionado.address || "No registrado"}</strong></div>
+                  </div>
+                </div>
+
+                <div className="profile-form">
+                  <h3>Solicitar atención</h3>
+                  <p className="info-texto">
+                    Usa este perfil como referencia y registra una solicitud para que el equipo de IntiFix gestione el servicio.
+                  </p>
+                  <button
+                    className="btn-pro primary full"
+                    type="button"
+                    onClick={() => {
+                      setSolicitudForm({
+                        ...solicitudForm,
+                        titulo: `Servicio con ${tecnicoSeleccionado.name}`,
+                      });
+                      setVistaDashboard("nuevaSolicitud");
+                    }}
+                  >
+                    Crear solicitud para este servicio
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "nuevaSolicitud" && usuarioActual.role === "CLIENTE" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Solicitud</span>
+                  <h1>Registrar reparación</h1>
+                  <p>
+                    Completa los datos del equipo, describe la falla y elige cómo
+                    deseas recibir la atención.
+                  </p>
+                </div>
+              </div>
+
+              <form className="profile-form solicitud-form solicitud-form-pro" onSubmit={registrarSolicitud}>
+                <div className="request-type-grid">
+                  {["Laptop", "Celular", "Impresora", "PC", "Tablet", "Otro"].map((tipo) => (
+                    <button
+                      key={tipo}
+                      type="button"
+                      className={solicitudForm.equipo.toLowerCase().includes(tipo.toLowerCase()) ? "request-type-card selected" : "request-type-card"}
+                      onClick={() => setSolicitudForm({ ...solicitudForm, equipo: tipo })}
+                    >
+                      <span>{tipo === "Laptop" ? "💻" : tipo === "Celular" ? "📱" : tipo === "Impresora" ? "🖨️" : tipo === "PC" ? "🖥️" : tipo === "Tablet" ? "📲" : "🧰"}</span>
+                      {tipo}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="form-row-pro">
+                  <label>Equipo tecnológico</label>
+                  <input
+                    type="text"
+                    placeholder="Ejemplo: Laptop Lenovo, celular Samsung, impresora HP"
+                    value={solicitudForm.equipo}
+                    onChange={(e) =>
+                      setSolicitudForm({ ...solicitudForm, equipo: e.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="form-row-pro">
+                  <label>Título de la falla</label>
+                  <input
+                    type="text"
+                    placeholder="Ejemplo: No enciende, pantalla rota, equipo lento"
+                    value={solicitudForm.titulo}
+                    onChange={(e) =>
+                      setSolicitudForm({ ...solicitudForm, titulo: e.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="form-row-pro">
+                  <label>Descripción del problema</label>
+                  <textarea
+                    placeholder="Describe qué pasó, desde cuándo ocurre y qué intentaste hacer."
+                    value={solicitudForm.descripcion}
+                    onChange={(e) =>
+                      setSolicitudForm({
+                        ...solicitudForm,
+                        descripcion: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="form-row-pro">
+                  <label>Modalidad del servicio</label>
+                  <div className="modalidad-cards">
+                    <button
+                      type="button"
+                      className={solicitudForm.modalidad === "TALLER" ? "modalidad-card selected" : "modalidad-card"}
+                      onClick={() => setSolicitudForm({ ...solicitudForm, modalidad: "TALLER" })}
+                    >
+                      <span>🏪</span>
+                      <strong>Llevar al taller</strong>
+                      <small>El cliente lleva el equipo al punto de atención.</small>
+                    </button>
+                    <button
+                      type="button"
+                      className={solicitudForm.modalidad === "DOMICILIO" ? "modalidad-card selected" : "modalidad-card"}
+                      onClick={() => setSolicitudForm({ ...solicitudForm, modalidad: "DOMICILIO" })}
+                    >
+                      <span>🏠</span>
+                      <strong>Atención a domicilio</strong>
+                      <small>El técnico atiende en la dirección indicada.</small>
+                    </button>
+                  </div>
+                </div>
+
+                {solicitudForm.modalidad === "DOMICILIO" && (
+                  <div className="form-row-pro">
+                    <label>Dirección de atención</label>
+                    <input
+                      type="text"
+                      placeholder="Ejemplo: Av. Los Próceres 123, San Juan de Lurigancho"
+                      value={solicitudForm.direccion}
+                      onChange={(e) =>
+                        setSolicitudForm({
+                          ...solicitudForm,
+                          direccion: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                )}
+
+                <button className="btn-pro primary full" type="submit" disabled={cargando}>
+                  {cargando ? "Registrando..." : "Registrar solicitud"}
+                </button>
+              </form>
+            </section>
+          )}
+
+          {vistaDashboard === "historial" && usuarioActual.role === "CLIENTE" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Historial</span>
+                  <h1>Mis solicitudes</h1>
+                  <p>
+                    Consulta tus servicios registrados, filtra por estado y revisa
+                    el detalle de cada reparación.
+                  </p>
+                </div>
+
+                <button
+                  className="btn-pro primary"
+                  type="button"
+                  onClick={() => cargarMisSolicitudes()}
+                >
+                  Actualizar
+                </button>
+              </div>
+
+              <div className="search-panel-pro solicitud-filter">
+                <label>Filtrar por estado</label>
+                <select
+                  value={filtroEstadoSolicitud}
+                  onChange={(e) => {
+                    setFiltroEstadoSolicitud(e.target.value);
+                    cargarMisSolicitudes(e.target.value);
+                  }}
+                >
+                  <option value="TODOS">Todos</option>
+                  <option value="REGISTRADA">Registrada</option>
+                  <option value="EN_REVISION">En revisión</option>
+                  <option value="ASIGNADA">Asignada</option>
+                  <option value="EN_PROCESO">En proceso</option>
+                  <option value="FINALIZADA">Finalizada</option>
+                  <option value="CANCELADA">Cancelada</option>
+                </select>
+              </div>
+
+              <div className="technicians-grid-pro">
+                {solicitudes.length === 0 && (
+                  <div className="empty-state-pro">
+                    <div>📭</div>
+                    <h3>No hay solicitudes registradas</h3>
+                    <p>Cuando registres una reparación aparecerá aquí.</p>
+                  </div>
+                )}
+
+                {solicitudes.map((solicitud) => (
+                  <div className="technician-pro-card solicitud-card" key={solicitud.id}>
+                    <div className="technician-head">
+                      <div className="avatar-tech">🧾</div>
+                      <div>
+                        <h3>{solicitud.titulo}</h3>
+                        <span className={`estado-badge estado-${solicitud.estado}`}>
+                          {solicitud.estado}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="tech-info">
+                      <p>
+                        <strong>Código:</strong> {solicitud.codigo}
+                      </p>
+                      <p>
+                        <strong>Equipo:</strong> {solicitud.equipo}
+                      </p>
+                      <p>
+                        <strong>Modalidad:</strong> {solicitud.modalidad}
+                      </p>
+                      <p>
+                        <strong>Fecha:</strong>{" "}
+                        {solicitud.fechaRegistro
+                          ? new Date(solicitud.fechaRegistro).toLocaleString()
+                          : "No registrada"}
+                      </p>
+                    </div>
+
+                    <button
+                      className="btn-pro primary full"
+                      type="button"
+                      onClick={() => verDetalleSolicitud(solicitud.id)}
+                    >
+                      Ver detalle
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "seguimiento" && usuarioActual.role === "CLIENTE" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Seguimiento</span>
+                  <h1>Consultar estado</h1>
+                  <p>Ingresa el código generado al registrar tu solicitud.</p>
+                </div>
+              </div>
+
+              <form className="profile-form seguimiento-form" onSubmit={consultarEstadoSolicitud}>
+                <div className="form-row-pro">
+                  <label>Código de solicitud</label>
+                  <input
+                    type="text"
+                    placeholder="Ejemplo: IFX-1234ABCD"
+                    value={codigoSeguimiento}
+                    onChange={(e) => setCodigoSeguimiento(e.target.value)}
+                  />
+                </div>
+
+                <button className="btn-pro primary full" type="submit">
+                  Consultar estado
+                </button>
+              </form>
+
+              {resultadoSeguimiento && (
+                <div className="profile-summary seguimiento-card">
+                  <span className="section-badge">Resultado</span>
+                  <h3>{resultadoSeguimiento.titulo}</h3>
+
+                  <div className="profile-info-list">
+                    <div>
+                      <span>Código</span>
+                      <strong>{resultadoSeguimiento.codigo}</strong>
+                    </div>
+
+                    <div>
+                      <span>Estado actual</span>
+                      <strong>{resultadoSeguimiento.estado}</strong>
+                    </div>
+
+                    <div>
+                      <span>Equipo</span>
+                      <strong>{resultadoSeguimiento.equipo}</strong>
+                    </div>
+
+                    <div>
+                      <span>Modalidad</span>
+                      <strong>{resultadoSeguimiento.modalidad}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {vistaDashboard === "solicitudesGestion" &&
+            (usuarioActual.role === "ADMIN" || usuarioActual.role === "TECNICO") && (
+              <section className="content-pro">
+                <div className="page-heading">
+                  <div>
+                    <span className="section-badge">Gestión</span>
+                    <h1>Solicitudes de reparación</h1>
+                    <p>
+                      Revisa solicitudes registradas, filtra por estado y actualiza
+                      el avance del servicio.
+                    </p>
+                  </div>
+
+                  <button
+                    className="btn-pro primary"
+                    type="button"
+                    onClick={() => cargarSolicitudesGestion()}
+                  >
+                    Actualizar
+                  </button>
+                </div>
+
+                <div className="search-panel-pro solicitud-filter">
+                  <label>Filtrar por estado</label>
+                  <select
+                    value={filtroEstadoSolicitud}
+                    onChange={(e) => {
+                      setFiltroEstadoSolicitud(e.target.value);
+                      cargarSolicitudesGestion(e.target.value);
+                    }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    <option value="REGISTRADA">Registrada</option>
+                    <option value="EN_REVISION">En revisión</option>
+                    <option value="ASIGNADA">Asignada</option>
+                    <option value="EN_PROCESO">En proceso</option>
+                    <option value="FINALIZADA">Finalizada</option>
+                    <option value="CANCELADA">Cancelada</option>
+                  </select>
+                </div>
+
+                <div className="technicians-grid-pro">
+                  {solicitudes.length === 0 && (
+                    <div className="empty-state-pro">
+                      <div>📭</div>
+                      <h3>No hay solicitudes</h3>
+                      <p>Cuando los clientes registren servicios aparecerán aquí.</p>
+                    </div>
+                  )}
+
+                  {solicitudes.map((solicitud) => (
+                    <div className="technician-pro-card solicitud-card" key={solicitud.id}>
+                      <div className="technician-head">
+                        <div className="avatar-tech">🧾</div>
+                        <div>
+                          <h3>{solicitud.titulo}</h3>
+                          <span className={`estado-badge estado-${solicitud.estado}`}>
+                            {solicitud.estado}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="tech-info">
+                        <p>
+                          <strong>Código:</strong> {solicitud.codigo}
+                        </p>
+                        <p>
+                          <strong>Cliente:</strong> {solicitud.clienteNombre}
+                        </p>
+                        <p>
+                          <strong>Equipo:</strong> {solicitud.equipo}
+                        </p>
+                        <p>
+                          <strong>Modalidad:</strong> {solicitud.modalidad}
+                        </p>
+                      </div>
+
+                      <button
+                        className="btn-pro primary full"
+                        type="button"
+                        onClick={() => verDetalleSolicitud(solicitud.id)}
+                      >
+                        Gestionar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+          {vistaDashboard === "detalleSolicitud" && solicitudSeleccionada && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Detalle</span>
+                  <h1>{solicitudSeleccionada.titulo}</h1>
+                  <p>Código: {solicitudSeleccionada.codigo}</p>
+                </div>
+
+                <button
+                  className="btn-pro secondary"
+                  type="button"
+                  onClick={() => {
+                    if (usuarioActual.role === "CLIENTE") {
+                      setVistaDashboard("historial");
+                      cargarMisSolicitudes();
+                    } else {
+                      setVistaDashboard("solicitudesGestion");
+                      cargarSolicitudesGestion();
+                    }
+                  }}
+                >
+                  Volver
+                </button>
+              </div>
+
+              <div className="profile-layout">
+                <div className="profile-summary detalle-solicitud">
+                  <h3>Información de la solicitud</h3>
+
+                  <div className="profile-info-list">
+                    <div>
+                      <span>Estado</span>
+                      <strong>{solicitudSeleccionada.estado}</strong>
+                    </div>
+
+                    <div>
+                      <span>Equipo</span>
+                      <strong>{solicitudSeleccionada.equipo}</strong>
+                    </div>
+
+                    <div>
+                      <span>Cliente</span>
+                      <strong>
+                        {solicitudSeleccionada.clienteNombre || "No registrado"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Correo</span>
+                      <strong>
+                        {solicitudSeleccionada.clienteCorreo || "No registrado"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Modalidad</span>
+                      <strong>{solicitudSeleccionada.modalidad}</strong>
+                    </div>
+
+                    <div>
+                      <span>Dirección</span>
+                      <strong>{solicitudSeleccionada.direccion || "No aplica"}</strong>
+                    </div>
+                  </div>
+
+                  <p className="detalle-descripcion">
+                    {solicitudSeleccionada.descripcion}
+                  </p>
+                </div>
+
+                <div className="profile-form">
+                  {usuarioActual.role === "CLIENTE" && (
+                    <>
+                      <h3>Adjuntar evidencia</h3>
+
+                      <form onSubmit={subirEvidencia}>
+                        <div className="form-row-pro">
+                          <label>Imagen del problema</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => setArchivoEvidencia(e.target.files[0])}
+                          />
+                        </div>
+
+                        <button
+                          className="btn-pro primary full"
+                          type="submit"
+                          disabled={cargando}
+                        >
+                          {cargando ? "Subiendo..." : "Subir evidencia"}
+                        </button>
+                      </form>
+                    </>
+                  )}
+
+                  {(usuarioActual.role === "ADMIN" ||
+                    usuarioActual.role === "TECNICO") && (
+                    <>
+                      <h3>Actualizar estado</h3>
+
+                      <form onSubmit={actualizarEstadoSolicitud}>
+                        <div className="form-row-pro">
+                          <label>Nuevo estado</label>
+                          <select
+                            value={estadoNuevoSolicitud}
+                            onChange={(e) => setEstadoNuevoSolicitud(e.target.value)}
+                          >
+                            <option value="REGISTRADA">Registrada</option>
+                            <option value="EN_REVISION">En revisión</option>
+                            <option value="ASIGNADA">Asignada</option>
+                            <option value="EN_PROCESO">En proceso</option>
+                            <option value="FINALIZADA">Finalizada</option>
+                            <option value="CANCELADA">Cancelada</option>
+                          </select>
+                        </div>
+
+                        <div className="form-row-pro">
+                          <label>Comentario</label>
+                          <textarea
+                            placeholder="Ejemplo: Solicitud revisada y asignada para diagnóstico."
+                            value={comentarioEstado}
+                            onChange={(e) => setComentarioEstado(e.target.value)}
+                          />
+                        </div>
+
+                        <button
+                          className="btn-pro success full"
+                          type="submit"
+                          disabled={cargando}
+                        >
+                          {cargando ? "Actualizando..." : "Guardar cambio de estado"}
+                        </button>
+                      </form>
+                    </>
+                  )}
+
+                  <h3>Evidencias</h3>
+
+                  {(!solicitudSeleccionada.adjuntos ||
+                    solicitudSeleccionada.adjuntos.length === 0) && (
+                    <p className="ayuda-campo info-texto">
+                      Aún no hay evidencias adjuntas.
+                    </p>
+                  )}
+
+                  {solicitudSeleccionada.adjuntos?.map((adjunto) => (
+                    <div className="evidencia-item" key={adjunto.id}>
+                      <span>🖼️ {adjunto.nombreArchivo}</span>
+                      <a
+                        href={`http://localhost:8081${adjunto.urlArchivo}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Ver imagen
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="profile-form historial-box">
+                <h3>Historial de cambios</h3>
+
+                {(!solicitudSeleccionada.historial ||
+                  solicitudSeleccionada.historial.length === 0) && (
+                  <p className="info-texto">No hay historial registrado.</p>
+                )}
+
+                {solicitudSeleccionada.historial?.map((item) => (
+                  <div className="historial-item" key={item.id}>
+                    <strong>
+                      {item.estadoAnterior || "INICIO"} → {item.estadoNuevo}
+                    </strong>
+                    <p>{item.comentario}</p>
+                    <small>
+                      Responsable: {item.responsable} |{" "}
+                      {item.fechaCambio
+                        ? new Date(item.fechaCambio).toLocaleString()
+                        : ""}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "usuariosAdmin" && usuarioActual.role === "ADMIN" && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Administración</span>
+                  <h1>Gestión de usuarios</h1>
+                  <p>Visualiza clientes, técnicos y administradores. Activa, desactiva o banea cuentas.</p>
+                </div>
+                <button className="btn-pro primary" type="button" onClick={() => cargarUsuariosAdmin()}>
+                  Actualizar
+                </button>
+              </div>
+
+              <div className="search-panel-pro admin-users-filter">
+                <div className="form-row-pro">
+                  <label>Buscar usuario</label>
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre, correo, DNI o teléfono"
+                    value={filtroUsuarioAdmin}
+                    onChange={(e) => setFiltroUsuarioAdmin(e.target.value)}
+                  />
+                </div>
+                <div className="form-row-pro">
+                  <label>Rol</label>
+                  <select value={filtroRolAdmin} onChange={(e) => setFiltroRolAdmin(e.target.value)}>
+                    <option value="TODOS">Todos</option>
+                    <option value="CLIENTE">Clientes</option>
+                    <option value="TECNICO">Técnicos</option>
+                    <option value="ADMIN">Administradores</option>
+                  </select>
+                </div>
+                <div className="form-row-pro">
+                  <label>Estado</label>
+                  <select value={filtroEstadoAdmin} onChange={(e) => setFiltroEstadoAdmin(e.target.value)}>
+                    <option value="TODOS">Todos</option>
+                    <option value="APROBADO">Activo / aprobado</option>
+                    <option value="PENDIENTE">Pendiente</option>
+                    <option value="INACTIVO">Inactivo</option>
+                    <option value="BANEADO">Baneado</option>
+                    <option value="ELIMINADO">Eliminado</option>
+                  </select>
+                </div>
+                <button
+                  className="btn-pro primary full"
+                  type="button"
+                  onClick={() => cargarUsuariosAdmin(filtroRolAdmin, filtroEstadoAdmin, filtroUsuarioAdmin)}
+                >
+                  Aplicar filtros
+                </button>
+              </div>
+
+              <div className="users-table-pro">
+                {usuariosAdmin.length === 0 && (
+                  <div className="empty-state-pro">
+                    <div>👥</div>
+                    <h3>No hay usuarios para mostrar</h3>
+                    <p>Prueba cambiando los filtros o actualizando la lista.</p>
+                  </div>
+                )}
+
+                {usuariosAdmin.map((user) => (
+                  <div className="user-admin-row" key={user.id}>
+                    <div className="user-admin-main">
+                      {user.profileImageUrl ? (
+                        <img className="avatar-img" src={user.profileImageUrl} alt="Usuario" />
+                      ) : (
+                        <div className="avatar-user">{user.name ? user.name.charAt(0).toUpperCase() : "U"}</div>
+                      )}
+                      <div>
+                        <h3>{user.name}</h3>
+                        <p>{user.email}</p>
+                        <small>DNI: {user.dni} | Tel: {user.phone}</small>
+                      </div>
+                    </div>
+                    <div className="user-admin-tags">
+                      <span>{user.role}</span>
+                      <span className={`estado-badge estado-${user.accountStatus}`}>{user.accountStatus}</span>
+                    </div>
+                    <div className="user-admin-actions">
+                      <button className="btn-pro secondary" type="button" onClick={() => verPerfilUsuarioAdmin(user.id)}>
+                        Ver perfil
+                      </button>
+                      <button className="btn-pro success" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "APROBADO")}>Activar</button>
+                      <button className="btn-pro secondary" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "INACTIVO")}>Desactivar</button>
+                      <button className="btn-pro danger" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "BANEADO", "¿Banear esta cuenta?")}>Banear</button>
+                      <button className="btn-pro danger" type="button" onClick={() => cambiarEstadoUsuarioAdmin(user.id, "ELIMINADO", "¿Marcar esta cuenta como eliminada?")}>Eliminar</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {vistaDashboard === "detalleUsuarioAdmin" && usuarioActual.role === "ADMIN" && usuarioAdminSeleccionado && (
+            <section className="content-pro">
+              <div className="page-heading">
+                <div>
+                  <span className="section-badge">Perfil de usuario</span>
+                  <h1>{usuarioAdminSeleccionado.name}</h1>
+                  <p>Información completa del usuario seleccionado.</p>
+                </div>
+                <button className="btn-pro secondary" type="button" onClick={() => setVistaDashboard("usuariosAdmin")}>
+                  Volver
+                </button>
+              </div>
+
+              <div className="profile-layout">
+                <div className="profile-summary">
+                  {usuarioAdminSeleccionado.profileImageUrl ? (
+                    <img className="profile-photo-large" src={usuarioAdminSeleccionado.profileImageUrl} alt="Usuario" />
+                  ) : (
+                    <div className="profile-avatar-large">
+                      {usuarioAdminSeleccionado.name ? usuarioAdminSeleccionado.name.charAt(0).toUpperCase() : "U"}
+                    </div>
+                  )}
+                  <h3>{usuarioAdminSeleccionado.name}</h3>
+                  <p>{usuarioAdminSeleccionado.email}</p>
+                  <div className="profile-info-list">
+                    <div><span>DNI</span><strong>{usuarioAdminSeleccionado.dni}</strong></div>
+                    <div><span>Teléfono</span><strong>{usuarioAdminSeleccionado.phone}</strong></div>
+                    <div><span>Rol</span><strong>{usuarioAdminSeleccionado.role}</strong></div>
+                    <div><span>Estado</span><strong>{usuarioAdminSeleccionado.accountStatus}</strong></div>
+                    <div><span>Dirección</span><strong>{usuarioAdminSeleccionado.address || "No registrado"}</strong></div>
+                    <div><span>Especialidades</span><strong>{usuarioAdminSeleccionado.specialties || "No registrado"}</strong></div>
+                    <div><span>Zona</span><strong>{usuarioAdminSeleccionado.serviceZone || "No registrado"}</strong></div>
+                    <div><span>Disponibilidad</span><strong>{usuarioAdminSeleccionado.availability || "No registrado"}</strong></div>
+                  </div>
+                </div>
+
+                <div className="profile-form">
+                  <h3>Acciones administrativas</h3>
+                  <button className="btn-pro success full" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "APROBADO")}>Activar cuenta</button>
+                  <button className="btn-pro secondary full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "INACTIVO")}>Desactivar cuenta</button>
+                  <button className="btn-pro danger full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "BANEADO", "¿Seguro que deseas banear esta cuenta?")}>Banear cuenta</button>
+                  <button className="btn-pro danger full danger-margin" type="button" onClick={() => cambiarEstadoUsuarioAdmin(usuarioAdminSeleccionado.id, "ELIMINADO", "¿Seguro que deseas eliminar esta cuenta?")}>Eliminar cuenta</button>
+                </div>
               </div>
             </section>
           )}

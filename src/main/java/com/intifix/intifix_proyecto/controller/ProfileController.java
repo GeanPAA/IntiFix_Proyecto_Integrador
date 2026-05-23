@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.intifix.intifix_proyecto.dto.UpdateProfileRequest;
+import com.intifix.intifix_proyecto.dto.request.UpdateProfileRequest;
 import com.intifix.intifix_proyecto.service.UserService;
 
 import jakarta.validation.Valid;

@@ -2,8 +2,8 @@ package com.intifix.intifix_proyecto.service;
 
 import org.springframework.stereotype.Service;
 
-import com.intifix.intifix_proyecto.dto.ProfileResponse;
-import com.intifix.intifix_proyecto.dto.UpdateProfileRequest;
+import com.intifix.intifix_proyecto.dto.request.UpdateProfileRequest;
+import com.intifix.intifix_proyecto.dto.response.ProfileResponse;
 import com.intifix.intifix_proyecto.model.User;
 import com.intifix.intifix_proyecto.repository.UserRepository;
 
